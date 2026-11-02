@@ -1,0 +1,11 @@
+# Copiar como local.properties (en la raíz del proyecto Android) y completar.
+# NUNCA subir local.properties a git.
+#
+# Generar cada llave con:
+#   openssl rand -hex 32
+#
+# aes.key debe ser igual a AES_KEY_HEX en firmware/relay/config.h
+
+sdk.dir=/ruta/a/tu/Android/Sdk
+
+aes.key=REEMPLAZAR_64_CARACTERES_HEX

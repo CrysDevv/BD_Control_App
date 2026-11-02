@@ -1,0 +1,23 @@
+# Secretos y configuración local — nunca versionar
+local.properties
+**/config.h
+
+# Build
+/build
+**/build
+*.apk
+*.aab
+*.db
+
+# Android Studio / IntelliJ
+.idea/*
+!.idea/runConfigurations
+*.iml
+.gradle/
+
+# Firmware (Arduino IDE)
+**/*.ino.elf
+**/*.ino.bin
+
+# Sistema
+.DS_Store

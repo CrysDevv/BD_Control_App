@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">bd_control_app</string>
+
+    <!-- Login -->
+    <string name="login_title">Bodega — Control de ventilación</string>
+    <string name="login_username_label">Usuario</string>
+    <string name="login_password_label">Contraseña</string>
+    <string name="login_button">Ingresar</string>
+    <string name="login_simulator_link">¿Eres el dispositivo emisor? Abrir panel de simulación</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_temperature_label">Temperatura</string>
+    <string name="dashboard_humidity_label">Humedad</string>
+    <string name="dashboard_sensor_online">Sensor en línea</string>
+    <string name="dashboard_sensor_offline">Sensor sin señal</string>
+    <string name="dashboard_relay_online">Relé en línea</string>
+    <string name="dashboard_relay_offline">Relé sin conexión</string>
+    <string name="dashboard_fan_label">Ventilador</string>
+    <string name="dashboard_history_button">Ver historial</string>
+    <string name="dashboard_logout_button">Cerrar sesión</string>
+    <string name="dashboard_no_data">Esperando la primera lectura…</string>
+
+    <!-- Simulador (temporal, sin ESP32) -->
+    <string name="simulator_title">Simulador: dispositivo emisor</string>
+    <string name="simulator_temp_label">Temperatura</string>
+    <string name="simulator_hum_label">Humedad</string>
+    <string name="simulator_auto_label">Enviar automáticamente cada 2 s</string>
+    <string name="simulator_send_now">Enviar ahora</string>
+    <string name="simulator_fan_received_label">Comando recibido de la app de monitoreo</string>
+    <string name="simulator_fan_state_on">Ventilador ENCENDIDO</string>
+    <string name="simulator_fan_state_off">Ventilador APAGADO</string>
+
+    <!-- History -->
+    <string name="history_title">Historial</string>
+    <string name="history_empty">Todavía no hay registros guardados</string>
+    <string name="history_back">Volver</string>
+</resources>

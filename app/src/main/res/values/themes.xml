@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Compose reemplaza el theming en tiempo de ejecución (ver ui/theme/Theme.kt),
+      pero Android exige que el tema declarado en el manifiesto exista como recurso.
+    -->
+    <style name="Theme.BdControlApp" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

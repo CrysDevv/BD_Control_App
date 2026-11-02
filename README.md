@@ -79,6 +79,7 @@ La app y el ESP32 intercambian información mediante tramas de texto delimitadas
 
 Este proyecto se distribuye bajo la Licencia MIT.
 
+
 ```
 
 ```

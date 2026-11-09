@@ -16,7 +16,7 @@ val secrets = Properties().apply {
 
 android {
     namespace = "cl.avelyn.bd_control_app"
-    compileSdk = 34
+    compileSdk = 35 // la librería usb-serial-for-android se compila con 35
 
     defaultConfig {
         applicationId = "cl.avelyn.bd_control_app"
@@ -28,6 +28,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "AES_KEY_HEX", "\"${secrets.getProperty("aes.key", "")}\"")
+        // "wifi" (ESP32 reales, por defecto) o "supabase" (simulador sin hardware)
+        // false (por defecto) = no retener el MulticastLock del Wi-Fi (ahorra batería); true solo si el teléfono no recibe al relé
+        buildConfigField("boolean", "WIFI_MULTICAST_LOCK", secrets.getProperty("iot.multicastLock", "false"))
+        // true = también escucha al sensor conectado por el cable USB-C (ver SerialLink)
+        buildConfigField("boolean", "SERIAL_ENABLED", secrets.getProperty("iot.serial", "true"))
+        buildConfigField("String", "IOT_TRANSPORT", "\"${secrets.getProperty("iot.transport", "wifi")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${secrets.getProperty("supabase.url", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${secrets.getProperty("supabase.anon.key", "")}\"")
     }
@@ -90,6 +96,9 @@ dependencies {
     implementation(libs.supabase.realtime)
     implementation("io.ktor:ktor-client-okhttp:3.0.0")
     implementation(libs.kotlinx.serialization.json)
+
+    // Comunicación serial por USB (OTG) con el ESP32 del sensor; se descarga de JitPack (ver settings.gradle.kts)
+    implementation("com.github.mik3y:usb-serial-for-android:3.11.0")
 
     // Pruebas
     testImplementation("junit:junit:4.13.2")

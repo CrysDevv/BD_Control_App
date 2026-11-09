@@ -6,6 +6,10 @@
     <string name="login_title">Bodega — Control de ventilación</string>
     <string name="login_username_label">Usuario</string>
     <string name="login_password_label">Contraseña</string>
+    <string name="login_code_label">Código de verificación</string>
+    <string name="login_code_hint">Verificación en 2 pasos: abre tu app de autenticación e ingresa el código de 6 dígitos.</string>
+    <string name="login_verify_button">Verificar</string>
+    <string name="login_back_button">Volver</string>
     <string name="login_button">Ingresar</string>
     <string name="login_simulator_link">¿Eres el dispositivo emisor? Abrir panel de simulación</string>
 
@@ -20,6 +24,40 @@
     <string name="dashboard_history_button">Ver historial</string>
     <string name="dashboard_logout_button">Cerrar sesión</string>
     <string name="dashboard_no_data">Esperando la primera lectura…</string>
+    <string name="dashboard_searching_devices">Buscando dispositivos en la red…</string>
+    <string name="dashboard_sensor_title">Sensor: %1$s</string>
+    <string name="dashboard_relay_read_only">Solo lectura: no tienes permiso para controlar este ventilador.</string>
+    <string name="dashboard_sample_interval_label">Medir cada</string>
+    <string name="dashboard_seconds_format">%1$d s</string>
+    <string name="dashboard_sensor_read_only">Solo lectura: no tienes permiso para configurar este sensor.</string>
+    <string name="serial_no_cable">Sensor USB: conecta el cable USB-C del sensor al teléfono</string>
+    <string name="serial_permission">Sensor USB (%1$s): acepta el permiso USB en el aviso del teléfono</string>
+    <string name="serial_connecting">Sensor USB (%1$s): conectando…</string>
+    <string name="serial_connected">Sensor USB conectado: %1$s</string>
+    <string name="serial_failed">Sensor USB: %1$s. Reintentando…</string>
+    <string name="serial_buffer">Recuperadas del sensor: %1$d · en su buffer: %2$d de %3$d · descartadas por desborde: %4$d</string>
+    <string name="alerts_title">Avisos</string>
+    <string name="relay_failsafe">MODO SEGURO: el relé dejó de oír a la app y ventila por ciclos por su cuenta</string>
+    <string name="relay_automatic_label">Automático (por humedad)</string>
+    <string name="relay_automatic_active">La app enciende el ventilador con humedad alta y lo apaga al bajar.</string>
+    <string name="relay_automatic_paused">En pausa: no hay datos recientes de sensores. El relé pasará solo a modo seguro.</string>
+    <string name="energy_title">Modo ahorro de energía</string>
+    <string name="energy_saving_on">Activado: con la humedad estable el sensor mide más espaciado y la app solo trabaja a la vista.</string>
+    <string name="energy_saving_off">Desactivado: el sensor mide con el intervalo que elijas.</string>
+    <string name="energy_level">Batería del teléfono: %1$d %%</string>
+    <string name="energy_charging">Batería del teléfono: %1$d %% (cargando)</string>
+    <string name="energy_rate">Descarga: %1$.1f %% por hora · alcanza para ~%2$.0f h</string>
+    <string name="energy_current">Corriente media: ~%1$d mA (indicativa)</string>
+    <string name="sync_title">Sincronización con la nube</string>
+    <string name="sync_offline_pending">Sin internet: %1$d lecturas guardadas en el teléfono. Se subirán solas al volver la conexión.</string>
+    <string name="sync_uploading">Subiendo… quedan %1$d lecturas</string>
+    <string name="sync_waiting">%1$d lecturas esperando para subir</string>
+    <string name="sync_offline_empty">Sin internet. No hay lecturas pendientes.</string>
+    <string name="sync_all_done">Todo sincronizado</string>
+    <string name="sync_last">Última subida: %1$s</string>
+    <string name="sync_error">No se pudo subir: %1$s. Se reintentará.</string>
+    <string name="serial_stats">Tramas correctas: %1$d · dañadas: %2$d · perdidas: %3$d · reconexiones: %4$d</string>
+    <string name="dashboard_relay_title">Ventilador: %1$s</string>
 
     <!-- Simulador (temporal, sin ESP32) -->
     <string name="simulator_title">Simulador: dispositivo emisor</string>

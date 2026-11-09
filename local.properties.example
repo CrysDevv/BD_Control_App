@@ -9,3 +9,16 @@
 sdk.dir=/ruta/a/tu/Android/Sdk
 
 aes.key=REEMPLAZAR_64_CARACTERES_HEX
+
+# Transporte de datos: "wifi" = ESP32 reales (por defecto), "supabase" = simulador sin hardware
+iot.transport=wifi
+
+# Sensor conectado por cable USB-C (serial). true = activado (por defecto), false = solo Wi-Fi
+iot.serial=true
+
+# Ahorro de batería: por defecto el Wi-Fi NO retiene el MulticastLock. Poner true solo si el teléfono no ve al relé.
+iot.multicastLock=false
+
+# Solo necesarios para el login y para el modo "supabase"
+supabase.url=https://TU-PROYECTO.supabase.co
+supabase.anon.key=REEMPLAZAR

@@ -90,13 +90,19 @@ class SupabaseIotBridge(
 
     override fun listen(): Flow<UdpMsg> = rowChanges().transform { row ->
         if (row.temp_c != null && row.hum_pct != null) {
-            emit(UdpMsg.Sensor(tempC = row.temp_c.toFloat(), humPct = row.hum_pct.toFloat()))
+            emit(UdpMsg.Sensor(DeviceIds.DEFAULT_SENSOR, tempC = row.temp_c.toFloat(), humPct = row.hum_pct.toFloat()))
         }
-        row.fan_state?.let { emit(UdpMsg.Relay(fanOn = it)) }
+        row.fan_state?.let { emit(UdpMsg.Relay(DeviceIds.DEFAULT_RELAY, fanOn = it)) }
     }
 
-    /** Equivalente al comando TCP: publica la intención, la confirmación real llega por [listen]. */
-    override suspend fun setFan(on: Boolean): Result<RelayReply> = runCatching {
+    /**
+     * Equivalente al comando TCP: publica la intención, la confirmación real llega por [listen].
+     * [deviceId] se ignora: el simulador solo representa un único relé.
+     */
+    /** El simulador no tiene un relé real que deba oír latidos. */
+    override suspend fun heartbeat(deviceId: String): Result<RelayReply> = Result.success(RelayReply(ok = true, fanOn = false))
+
+    override suspend fun setFan(deviceId: String, on: Boolean): Result<RelayReply> = runCatching {
         requireWifi()
         client.from(TABLE).upsert(CommandUpsert(fan_command = on))
         RelayReply(ok = true, fanOn = on)

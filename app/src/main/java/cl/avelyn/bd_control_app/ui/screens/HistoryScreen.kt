@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -48,6 +50,23 @@ fun HistoryScreen(
         ) {
             Text(stringResource(R.string.history_title), style = MaterialTheme.typography.titleLarge)
             OutlinedButton(onClick = onBack) { Text(stringResource(R.string.history_back)) }
+        }
+
+        // Con un solo sensor no hace falta elegir; con varios se muestra un chip por sensor.
+        if (ui.deviceIds.size > 1) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(ui.deviceIds) { id ->
+                    FilterChip(
+                        selected = id == ui.selectedId,
+                        onClick = { viewModel.selectDevice(id) },
+                        label = { Text(id) }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         if (ui.logs.isEmpty()) {

@@ -16,19 +16,25 @@ import cl.avelyn.bd_control_app.viewmodel.SimulatorViewModel
 val Factories = viewModelFactory {
     initializer {
         val container = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as BdApplication).container
-        AuthViewModel(container.authRepository)
+        AuthViewModel(container.authRepository, container.deviceAccessRepository, container.session)
     }
     initializer {
         val container = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as BdApplication).container
         DashboardViewModel(
-            sensorDataSource = container.supabaseIotBridge,
-            fanCommandSender = container.supabaseIotBridge,
-            sensorRepository = container.sensorRepository
+            sensorDataSource = container.sensorDataSource,
+            fanCommandSender = container.fanCommandSender,
+            sensorRepository = container.sensorRepository,
+            session = container.session,
+            serialPort = container.serialPort,
+            syncStatus = container.syncManager.status,
+            settings = container.controlSettings,
+            visibility = container.visibility,
+            energy = container.energyMonitor.report
         )
     }
     initializer {
         val container = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as BdApplication).container
-        HistoryViewModel(container.sensorRepository)
+        HistoryViewModel(container.sensorRepository, container.session)
     }
     initializer {
         val container = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as BdApplication).container

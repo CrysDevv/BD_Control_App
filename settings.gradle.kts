@@ -19,6 +19,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Solo para usb-serial-for-android; el filtro evita que JitPack pueda servir cualquier otra dependencia.
+        maven(url = "https://jitpack.io") {
+            content { includeGroup("com.github.mik3y") }
+        }
     }
 }
 

@@ -8,12 +8,23 @@
          en ambos dispositivos antes de escribir datos (ver WifiGuard.kt). -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
+    <!-- WifiIotBridge ata sus sockets a la red Wi-Fi de los ESP32 (que no tiene internet) y se
+         entera de cuándo el teléfono se reconecta, para reabrir el socket UDP. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Evita que algunos teléfonos descarten los broadcast UDP de los ESP32 con la pantalla apagada. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
     <!--
       En Android 9 (API 28) el SSID solo se entrega a apps con este permiso concedido
       Y con el GPS del teléfono encendido. Se solicita en tiempo de ejecución; si se
       rechaza, WifiGuard no puede leer el SSID y bloquea la escritura (fail-closed).
     -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- Sensor por cable USB-C (OTG). required=false: la app sigue instalándose en teléfonos sin USB host
+         (ahí solo funciona el modo Wi-Fi). -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <application
         android:name=".BdApplication"
@@ -26,11 +37,21 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.BdControlApp">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Al enchufar el ESP32 Android ofrece abrir la app, y con "usar siempre" concede el permiso USB
+                 para ese dispositivo de forma persistente. singleTop evita abrir una segunda copia (y volver al login). -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
     </application>
 

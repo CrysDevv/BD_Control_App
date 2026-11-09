@@ -32,4 +32,14 @@ class PasswordHasherTest {
 
         assertFalse(hash1.contentEquals(hash2))
     }
+
+    @Test
+    fun `es compatible con el hash que genera tools new_user py`() {
+        // Valor calculado con hashlib.pbkdf2_hmac("sha256", ..., 120000, 32) de Python, que es lo que
+        // usa tools/new_user.py para dar de alta usuarios. Si este test falla, las cuentas creadas
+        // con la herramienta dejarían de poder iniciar sesión.
+        val salt = ByteArray(16) { it.toByte() }
+        val expected = java.util.Base64.getDecoder().decode("ymUqt7kFEc9k4YLr1scFbqMwY2pbVfV2Zk2WogEFV0I=")
+        assertTrue(PasswordHasher.verify("Bodega#2026".toCharArray(), salt, expected))
+    }
 }

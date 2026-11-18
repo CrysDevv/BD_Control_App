@@ -22,3 +22,7 @@ iot.multicastLock=false
 # Solo necesarios para el login y para el modo "supabase"
 supabase.url=https://TU-PROYECTO.supabase.co
 supabase.anon.key=REEMPLAZAR
+
+# Login con Google: Client ID tipo "Web application" de Google Cloud Console (el mismo que se
+# configura en Supabase > Authentication > Providers > Google). Ver docs/migracion_google_auth.md.
+google.webClientId=REEMPLAZAR.apps.googleusercontent.com

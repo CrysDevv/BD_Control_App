@@ -21,6 +21,7 @@ val Factories = viewModelFactory {
     initializer {
         val container = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as BdApplication).container
         DashboardViewModel(
+            supabaseIotBridge = container.supabaseIotBridge,
             sensorDataSource = container.sensorDataSource,
             fanCommandSender = container.fanCommandSender,
             sensorRepository = container.sensorRepository,

@@ -4,13 +4,8 @@
 
     <!-- Login -->
     <string name="login_title">Bodega — Control de ventilación</string>
-    <string name="login_username_label">Usuario</string>
-    <string name="login_password_label">Contraseña</string>
-    <string name="login_code_label">Código de verificación</string>
-    <string name="login_code_hint">Verificación en 2 pasos: abre tu app de autenticación e ingresa el código de 6 dígitos.</string>
-    <string name="login_verify_button">Verificar</string>
-    <string name="login_back_button">Volver</string>
-    <string name="login_button">Ingresar</string>
+    <string name="login_google_hint">Ingresa con tu cuenta de Google para ver y controlar tus dispositivos.</string>
+    <string name="login_google_button">Continuar con Google</string>
     <string name="login_simulator_link">¿Eres el dispositivo emisor? Abrir panel de simulación</string>
 
     <!-- Dashboard -->
@@ -24,7 +19,7 @@
     <string name="dashboard_history_button">Ver historial</string>
     <string name="dashboard_logout_button">Cerrar sesión</string>
     <string name="dashboard_no_data">Esperando la primera lectura…</string>
-    <string name="dashboard_searching_devices">Buscando dispositivos en la red…</string>
+    <string name="dashboard_searching_devices">Buscando o esperando conexión con el dispositivo ESP32…</string>
     <string name="dashboard_sensor_title">Sensor: %1$s</string>
     <string name="dashboard_relay_read_only">Solo lectura: no tienes permiso para controlar este ventilador.</string>
     <string name="dashboard_sample_interval_label">Medir cada</string>

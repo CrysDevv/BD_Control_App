@@ -5,6 +5,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import cl.avelyn.bd_control_app.BuildConfig
 import cl.avelyn.bd_control_app.ui.screens.DashboardScreen
 import cl.avelyn.bd_control_app.ui.screens.HistoryScreen
 import cl.avelyn.bd_control_app.ui.screens.LoginScreen
@@ -15,7 +16,7 @@ private object Routes {
     const val DASHBOARD = "dashboard"
     const val HISTORY = "history"
 
-    /** Pantalla de desarrollador, temporal mientras no hay ESP32: no requiere login. */
+    /** Pantalla de desarrollador: no requiere login, por eso solo se registra en versiones de depuración. */
     const val SIMULATOR = "simulator"
 }
 
@@ -32,8 +33,10 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 onOpenSimulator = { navController.navigate(Routes.SIMULATOR) }
             )
         }
-        composable(Routes.SIMULATOR) {
-            SimulatorScreen(onBack = { navController.popBackStack() })
+        if (BuildConfig.DEBUG) {
+            composable(Routes.SIMULATOR) {
+                SimulatorScreen(onBack = { navController.popBackStack() })
+            }
         }
         composable(Routes.DASHBOARD) {
             DashboardScreen(

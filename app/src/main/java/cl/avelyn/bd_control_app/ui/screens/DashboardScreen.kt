@@ -1,8 +1,5 @@
 package cl.avelyn.bd_control_app.ui.screens
 
-import android.Manifest
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,68 +8,42 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cl.avelyn.bd_control_app.R
 import cl.avelyn.bd_control_app.di.Factories
-import cl.avelyn.bd_control_app.model.alerts.Alert
-import cl.avelyn.bd_control_app.model.alerts.AlertSeverity
-import cl.avelyn.bd_control_app.model.automation.AutomationStatus
-import cl.avelyn.bd_control_app.model.energy.EnergyReport
-import cl.avelyn.bd_control_app.model.network.DeviceType
-import cl.avelyn.bd_control_app.model.network.LinkStats
-import cl.avelyn.bd_control_app.model.network.SerialLinkState
-import cl.avelyn.bd_control_app.model.sync.SyncStatus
 import cl.avelyn.bd_control_app.ui.components.SensorCard
 import cl.avelyn.bd_control_app.viewmodel.DashboardViewModel
-import cl.avelyn.bd_control_app.viewmodel.DeviceUi
+import java.util.Locale
 
-/**
- * Panel principal: una sección por cada dispositivo descubierto en la red. Cada sensor muestra
- * su temperatura y humedad en vivo; cada relé tiene su propio interruptor de ventilador.
- * Solicita el permiso de ubicación al entrar (lo necesita WifiGuard para leer el SSID
- * y exigir la misma red Wi-Fi en los dos dispositivos); si se rechaza, el interruptor
- * del ventilador seguirá mostrando el error de WifiGuard al intentar usarlo.
- */
 @Composable
 fun DashboardScreen(
     onOpenHistory: () -> Unit,
     onLogout: () -> Unit,
     viewModel: DashboardViewModel = viewModel(factory = Factories)
 ) {
-    val ui by viewModel.ui.collectAsStateWithLifecycle()
-    val serialState by viewModel.serialState.collectAsStateWithLifecycle()
-    val serialStats by viewModel.serialStats.collectAsStateWithLifecycle()
-    val sync by viewModel.syncStatus.collectAsStateWithLifecycle()
-    val energy by viewModel.energy.collectAsStateWithLifecycle()
-    val powerSaving by viewModel.powerSaving.collectAsStateWithLifecycle()
-
-    val locationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { /* concedido o no, WifiGuard revisa igual al momento de escribir */ }
-
-    LaunchedEffect(Unit) {
-        locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
+    val state by viewModel.bodegaState.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -81,28 +52,122 @@ fun DashboardScreen(
     ) {
         LazyColumn(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (ui.alerts.isNotEmpty()) {
-                item { AlertsCard(ui.alerts) }
-            }
-            item { EnergyCard(energy, powerSaving, onToggle = { viewModel.setPowerSaving(it) }) }
-            item { SyncStatusCard(sync) }
-            if (serialState !is SerialLinkState.Unavailable) {
-                item { SerialStatusCard(serialState, serialStats) }
-            }
-            if (ui.devices.isEmpty()) {
+            // Mensaje de error si la última operación falló
+            state.userError?.let { err ->
                 item {
-                    Text(
-                        text = stringResource(R.string.dashboard_searching_devices),
-                        style = MaterialTheme.typography.bodyLarge
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = err,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = viewModel::clearUserError) {
+                                Text("OK", color = MaterialTheme.colorScheme.onErrorContainer)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 1. Cabecera/indicador de estado en línea/desconectado
+            item {
+                HeaderOnlineCard(
+                    online = state.online,
+                    lastSeenFormatted = state.lastSeenFormatted
+                )
+            }
+
+            // 2. Tarjetas de lectura: Temperatura y Humedad
+            item {
+                TelemetryCards(
+                    tempC = state.tempC,
+                    humPct = state.humPct,
+                    online = state.online
+                )
+            }
+
+            // 3. Estado real del ventilador (fan_state) + "Aplicando..."
+            item {
+                FanStateCard(
+                    fanOn = state.fanOn,
+                    pending = state.pending,
+                    pendingTimeout = state.pendingTimeout
+                )
+            }
+
+            // 4. Selector de modo: Automático / Manual
+            item {
+                ModeSelectorCard(
+                    isAuto = state.isAuto,
+                    enabled = state.online && !state.isBusy && state.canControl,
+                    onSelectAuto = { viewModel.setAuto() },
+                    onSelectManual = { viewModel.setManualMode() }
+                )
+            }
+
+            // 5. Botones ENCENDER / APAGAR
+            item {
+                ManualControlsCard(
+                    enabled = state.online && !state.isBusy && state.canControl,
+                    onTurnOn = { viewModel.setFanManual(true) },
+                    onTurnOff = { viewModel.setFanManual(false) }
+                )
+            }
+
+            // 6. Umbrales (hum_on, hum_off) - visibles solo en modo automático
+            if (state.isAuto) {
+                item {
+                    ThresholdsCard(
+                        humOnInput = state.humOnInput,
+                        humOffInput = state.humOffInput,
+                        enabled = state.online && !state.isBusy && state.canControl,
+                        onHumOnChanged = viewModel::updateHumOnInput,
+                        onHumOffChanged = viewModel::updateHumOffInput,
+                        onSave = viewModel::saveThresholds
                     )
                 }
             }
-            items(ui.devices, key = { it.id }) { device ->
-                when (device.type) {
-                    DeviceType.SENSOR -> SensorSection(device, onInterval = { viewModel.setSampleInterval(device.id, it) })
-                    DeviceType.RELAY -> RelaySection(device, onToggle = { viewModel.setFan(device.id, it) }, onAutomatic = { viewModel.setAutomatic(device.id, it) })
+
+            // 7. Explicación si está fuera de línea o sin permisos
+            if (!state.online) {
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Controles deshabilitados: El dispositivo está fuera de línea.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+            } else if (!state.canControl) {
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Controles deshabilitados: No tienes permisos para controlar este dispositivo.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
                 }
             }
         }
@@ -124,242 +189,69 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun SensorSection(device: DeviceUi, onInterval: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = stringResource(R.string.dashboard_sensor_title, device.id),
-            style = MaterialTheme.typography.titleMedium
-        )
-        SensorCard(
-            label = stringResource(R.string.dashboard_temperature_label),
-            value = device.tempC?.let { "%.1f °C".format(it) } ?: stringResource(R.string.dashboard_no_data),
-            isOnline = device.isOnline,
-            onlineLabel = stringResource(R.string.dashboard_sensor_online),
-            offlineLabel = stringResource(R.string.dashboard_sensor_offline)
-        )
-        SensorCard(
-            label = stringResource(R.string.dashboard_humidity_label),
-            value = device.humPct?.let { "%.1f %%".format(it) } ?: stringResource(R.string.dashboard_no_data),
-            isOnline = device.isOnline,
-            onlineLabel = stringResource(R.string.dashboard_sensor_online),
-            offlineLabel = stringResource(R.string.dashboard_sensor_offline)
-        )
-
-        if (device.viaSerial) {
-            Text(
-                text = stringResource(R.string.dashboard_sample_interval_label),
-                style = MaterialTheme.typography.labelLarge
-            )
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(SAMPLE_INTERVALS_MS) { ms ->
-                    FilterChip(
-                        selected = device.sampleIntervalMs == ms,
-                        onClick = { onInterval(ms) },
-                        enabled = device.isOnline && device.canControl && !device.isBusy,
-                        label = { Text(stringResource(R.string.dashboard_seconds_format, ms / 1000)) }
-                    )
-                }
-            }
-            if (!device.canControl) {
-                Text(
-                    text = stringResource(R.string.dashboard_sensor_read_only),
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-        device.error?.let {
-            Text(text = it, color = MaterialTheme.colorScheme.error)
-        }
-    }
-}
-
-@Composable
-private fun RelaySection(device: DeviceUi, onToggle: (Boolean) -> Unit, onAutomatic: (Boolean) -> Unit) {
+private fun HeaderOnlineCard(online: Boolean, lastSeenFormatted: String?) {
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.dashboard_relay_title, device.id),
-                    style = MaterialTheme.typography.titleLarge
-                )
-                Switch(
-                    checked = device.fanOn ?: false,
-                    onCheckedChange = onToggle,
-                    enabled = device.isOnline && !device.isBusy && device.canControl
-                )
-            }
-
-            Text(
-                text = if (device.isOnline) {
-                    stringResource(R.string.dashboard_relay_online)
-                } else {
-                    stringResource(R.string.dashboard_relay_offline)
-                },
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-
-            if (device.failSafe) {
-                Text(
-                    text = stringResource(R.string.relay_failsafe),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-
-            if (device.canControl) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(stringResource(R.string.relay_automatic_label), style = MaterialTheme.typography.bodyMedium)
-                    Switch(checked = device.automatic, onCheckedChange = onAutomatic, enabled = device.isOnline)
-                }
-                if (device.automatic) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("Control Bodega (ESP32)", style = MaterialTheme.typography.titleMedium)
+                if (!online && lastSeenFormatted != null) {
                     Text(
-                        text = when (device.automationStatus) {
-                            AutomationStatus.PAUSED_NO_DATA -> stringResource(R.string.relay_automatic_paused)
-                            else -> stringResource(R.string.relay_automatic_active)
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (device.automationStatus == AutomationStatus.PAUSED_NO_DATA) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            if (!device.canControl) {
-                Text(
-                    text = stringResource(R.string.dashboard_relay_read_only),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-
-            device.error?.let {
-                Text(
-                    text = it,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-        }
-    }
-}
-
-/** Intervalos de medición que ofrece la interfaz (el firmware acepta de 1 a 600 s). */
-private val SAMPLE_INTERVALS_MS = listOf(2_000, 10_000, 30_000, 60_000)
-
-/** Estado del cable USB y calidad del enlace serial con el sensor. */
-@Composable
-private fun SerialStatusCard(state: SerialLinkState, stats: LinkStats) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = when (state) {
-                    is SerialLinkState.NoCable -> stringResource(R.string.serial_no_cable)
-                    is SerialLinkState.PermissionRequired -> stringResource(R.string.serial_permission, state.deviceName)
-                    is SerialLinkState.Connecting -> stringResource(R.string.serial_connecting, state.deviceName)
-                    is SerialLinkState.Connected -> stringResource(R.string.serial_connected, state.deviceId ?: state.deviceName)
-                    is SerialLinkState.Failed -> stringResource(R.string.serial_failed, state.message)
-                    is SerialLinkState.Unavailable -> ""
-                },
-                style = MaterialTheme.typography.titleSmall
-            )
-            if (state is SerialLinkState.Connected) {
-                Text(
-                    text = stringResource(
-                        R.string.serial_stats,
-                        stats.framesOk, stats.framesCorrupt, stats.framesLost, stats.reconnects
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                if (stats.sensorCapacity > 0) {
-                    Text(
-                        text = stringResource(
-                            R.string.serial_buffer,
-                            stats.recovered, stats.sensorBuffered, stats.sensorCapacity, stats.sensorDropped
-                        ),
+                        "Última conexión: $lastSeenFormatted",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
-        }
-    }
-}
-
-/** Estado de la sincronización con la nube: qué hay guardado en el teléfono esperando subir y si hay internet. */
-@Composable
-private fun SyncStatusCard(sync: SyncStatus) {
-    val context = LocalContext.current
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = stringResource(R.string.sync_title),
-                style = MaterialTheme.typography.titleSmall
-            )
-            Text(
-                text = when {
-                    sync.pending > 0 && !sync.isOnline -> stringResource(R.string.sync_offline_pending, sync.pending)
-                    sync.pending > 0 && sync.isSyncing -> stringResource(R.string.sync_uploading, sync.pending)
-                    sync.pending > 0 -> stringResource(R.string.sync_waiting, sync.pending)
-                    !sync.isOnline -> stringResource(R.string.sync_offline_empty)
-                    else -> stringResource(R.string.sync_all_done)
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-            sync.lastSyncMs?.let {
-                Text(
-                    text = stringResource(
-                        R.string.sync_last, android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(it))
-                    ),
-                    style = MaterialTheme.typography.bodySmall
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (online) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
                 )
-            }
-            sync.lastError?.let {
+            ) {
                 Text(
-                    text = stringResource(R.string.sync_error, it),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
+                    text = if (online) "En línea" else "Desconectado",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (online) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 )
             }
         }
     }
 }
 
-/** Avisos al operador: lo que está fallando y qué hace el sistema al respecto (ver docs/plan_contingencia.md). */
 @Composable
-private fun AlertsCard(alerts: List<Alert>) {
-    val critical = alerts.any { it.severity == AlertSeverity.CRITICAL }
-    Card(
+private fun TelemetryCards(tempC: Double?, humPct: Double?, online: Boolean) {
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (critical) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
-        )
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(stringResource(R.string.alerts_title), style = MaterialTheme.typography.titleSmall)
-            alerts.forEach {
-                Text(
-                    text = (if (it.severity == AlertSeverity.CRITICAL) "⛔ " else if (it.severity == AlertSeverity.WARNING) "⚠ " else "ℹ ") + it.message,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
+        Column(modifier = Modifier.weight(1f)) {
+            SensorCard(
+                label = stringResource(R.string.dashboard_temperature_label),
+                value = tempC?.let { "%.1f °C".format(Locale.US, it) } ?: "-- °C",
+                isOnline = online,
+                onlineLabel = stringResource(R.string.dashboard_sensor_online),
+                offlineLabel = stringResource(R.string.dashboard_sensor_offline)
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            SensorCard(
+                label = stringResource(R.string.dashboard_humidity_label),
+                value = humPct?.let { "%.1f %%".format(Locale.US, it) } ?: "-- %",
+                isOnline = online,
+                onlineLabel = stringResource(R.string.dashboard_sensor_online),
+                offlineLabel = stringResource(R.string.dashboard_sensor_offline)
+            )
         }
     }
 }
 
-/** Batería del teléfono y modo ahorro. El sensor por cable se alimenta de esta misma batería. */
 @Composable
-private fun EnergyCard(energy: EnergyReport, powerSaving: Boolean, onToggle: (Boolean) -> Unit) {
+private fun FanStateCard(fanOn: Boolean, pending: Boolean, pendingTimeout: Boolean) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -367,29 +259,154 @@ private fun EnergyCard(energy: EnergyReport, powerSaving: Boolean, onToggle: (Bo
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(stringResource(R.string.energy_title), style = MaterialTheme.typography.titleSmall)
-                Switch(checked = powerSaving, onCheckedChange = onToggle)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (fanOn) "🌀" else "⏸",
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                    Column {
+                        Text("Estado del Ventilador", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            text = if (fanOn) "Encendido" else "Apagado",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = if (fanOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (pending) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (!pendingTimeout) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        }
+                        Text(
+                            text = if (pendingTimeout) "El dispositivo no responde" else "Aplicando...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (pendingTimeout) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
             }
-            Text(
-                text = stringResource(if (powerSaving) R.string.energy_saving_on else R.string.energy_saving_off),
-                style = MaterialTheme.typography.bodySmall
-            )
-            energy.levelPct?.let { level ->
-                Text(
-                    text = if (energy.charging) stringResource(R.string.energy_charging, level)
-                    else stringResource(R.string.energy_level, level),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 6.dp)
+        }
+    }
+}
+
+@Composable
+private fun ModeSelectorCard(
+    isAuto: Boolean,
+    enabled: Boolean,
+    onSelectAuto: () -> Unit,
+    onSelectManual: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Modo de Operación", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                FilterChip(
+                    selected = isAuto,
+                    onClick = onSelectAuto,
+                    enabled = enabled,
+                    label = { Text("Automático") },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = !isAuto,
+                    onClick = onSelectManual,
+                    enabled = enabled,
+                    label = { Text("Manual") },
+                    modifier = Modifier.weight(1f)
                 )
             }
-            energy.dischargePctPerHour?.let { rate ->
-                Text(
-                    text = stringResource(R.string.energy_rate, rate, energy.hoursRemaining ?: 0f),
-                    style = MaterialTheme.typography.bodySmall
+        }
+    }
+}
+
+@Composable
+private fun ManualControlsCard(
+    enabled: Boolean,
+    onTurnOn: () -> Unit,
+    onTurnOff: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Control Manual", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Button(
+                    onClick = onTurnOn,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("ENCENDER")
+                }
+                Button(
+                    onClick = onTurnOff,
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("APAGAR")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThresholdsCard(
+    humOnInput: String,
+    humOffInput: String,
+    enabled: Boolean,
+    onHumOnChanged: (String) -> Unit,
+    onHumOffChanged: (String) -> Unit,
+    onSave: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Umbrales de Humedad (% RH)", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = humOnInput,
+                    onValueChange = onHumOnChanged,
+                    label = { Text("Encender (hum_on)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = humOffInput,
+                    onValueChange = onHumOffChanged,
+                    label = { Text("Apagar (hum_off)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    enabled = enabled,
+                    modifier = Modifier.weight(1f)
                 )
             }
-            energy.avgCurrentMa?.let {
-                Text(text = stringResource(R.string.energy_current, it), style = MaterialTheme.typography.bodySmall)
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = onSave,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Guardar Umbrales")
             }
         }
     }

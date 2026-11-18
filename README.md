@@ -6,7 +6,7 @@
 
 ## 📌 Descripción
 
-Hay dos tipos de ESP32: un **sensor** (DHT11) conectado al teléfono por **cable USB-C (comunicación serial)** y uno o más **relés** (ventilador, con su propia fuente de poder) controlados por **Wi-Fi**. La app los **descubre sola**, muestra cada sensor en vivo, guarda su historial y permite encender/apagar cada ventilador de forma independiente. Los comandos viajan cifrados con **AES-256-GCM**. El acceso es con **verificación en 2 pasos** y cada usuario solo ve y controla los **dispositivos para los que tiene permiso**.
+Hay dos tipos de ESP32: un **sensor** (DHT11) conectado al teléfono por **cable USB-C (comunicación serial)** y uno o más **relés** (ventilador, con su propia fuente de poder) controlados por **Wi-Fi**. La app los **descubre sola**, muestra cada sensor en vivo, guarda su historial y permite encender/apagar cada ventilador de forma independiente. Los comandos viajan cifrados con **AES-256-GCM**. El acceso es con **login con Google** y cada usuario solo ve y controla los **dispositivos para los que tiene permiso**.
 
 ---
 
@@ -105,25 +105,27 @@ El sensor se alimenta de la batería del teléfono, así que optimizarlo es opti
 
 ---
 
-## 🔐 Seguridad: 2 pasos y permisos por dispositivo
+## 🔐 Seguridad: login con Google y permisos por dispositivo
 
-**Inicio de sesión en dos pasos**
-1. **Algo que sabes:** usuario y contraseña (PBKDF2-HMAC-SHA256, 120 000 iteraciones, salt por usuario).
-2. **Algo que tienes:** código de 6 dígitos de una app de autenticación (TOTP, RFC 6238: Google Authenticator, Authy, Microsoft Authenticator…). Un código ya usado no se acepta de nuevo.
+**Inicio de sesión:** botón "Continuar con Google" (Credential Manager, sin salir de la app). El
+usuario elige su cuenta de Gmail, Google entrega un idToken firmado y Supabase Auth lo valida y
+abre la sesión. Ya no hay contraseñas ni secretos TOTP que guardar: la identidad la gestiona
+Google. Ver `docs/migracion_google_auth.md` para la configuración (Google Cloud Console + Supabase).
 
-Una cuenta **sin secreto TOTP configurado no puede entrar**. Los dos pasos comparten el límite de 5 intentos fallidos y el bloqueo de 30 s.
-
-**Permisos por dispositivo** (tabla `device_permissions`): para cada usuario y cada `DEVICE_ID`, `can_view` (consultar telemetría e historial) y `can_control` (enviar comandos). Reglas: *denegar por defecto* (un ESP32 sin permiso no aparece ni se controla), controlar exige poder ver, `*` aplica a todos y una fila específica lo sobrescribe. Se aplica con decoradores sobre el transporte (`AuthorizedIot.kt`), así que ningún ViewModel puede saltárselo; si los permisos no se pueden cargar, no se inicia sesión.
+**Permisos por dispositivo** (tabla `device_permissions`): para cada correo de Gmail y cada
+`DEVICE_ID`, `can_view` (consultar telemetría e historial) y `can_control` (enviar comandos).
+Reglas: *denegar por defecto* (un ESP32 sin permiso no aparece ni se controla), controlar exige
+poder ver, `*` aplica a todos y una fila específica lo sobrescribe. Se aplica con decoradores sobre
+el transporte (`AuthorizedIot.kt`), así que ningún ViewModel puede saltárselo; si los permisos no
+se pueden cargar, no se inicia sesión.
 
 **Validación en el propio dispositivo:** cada comando cifrado lleva el `id` del relé destinatario y el relé lo ignora si no es el suyo. Los `id` que llegan por la red solo se aceptan con el formato `[A-Za-z0-9_.-]{1,32}`.
 
-**Dar de alta usuarios** (nunca desde la app):
+**Dar acceso a un correo** (nunca desde la app; cualquier cuenta de Gmail puede iniciar sesión, pero sin permisos no ve ni controla nada):
 ```bash
-python3 tools/new_user.py alta USUARIO                    # contraseña + secreto TOTP (+ SQL listo para pegar)
-python3 tools/new_user.py totp USUARIO                    # secreto TOTP para un usuario que ya existe
-python3 tools/new_user.py permisos USUARIO rele-1:control sensor-1:ver
+python3 tools/manage_permissions.py permisos correo@gmail.com rele-1:control sensor-1:ver
 ```
-Antes, ejecuta una vez `docs/supabase_2fa_permisos.sql` en el SQL Editor de Supabase.
+Antes, ejecuta una vez `docs/supabase_google_auth.sql` en el SQL Editor de Supabase.
 
 ---
 
@@ -195,7 +197,7 @@ firmware/
 
 ### 3. Pruebas
 
-`./gradlew testDebugUnitTest` — incluye `WireProtocolTest` (formato del frame AES-GCM byte a byte contra una implementación de referencia independiente), `TotpTest` (vectores oficiales del RFC 6238), `AccessPolicyTest` (reglas de permisos), `PasswordHasherTest` (incluye compatibilidad con `tools/new_user.py`) y `SerialProtocolTest` (el CRC y las tramas de Kotlin coinciden byte a byte con el firmware C++; ningún cambio de un bit produce una trama válida).
+`./gradlew testDebugUnitTest` — incluye `WireProtocolTest` (formato del frame AES-GCM byte a byte contra una implementación de referencia independiente), `AccessPolicyTest` (reglas de permisos) y `SerialProtocolTest` (el CRC y las tramas de Kotlin coinciden byte a byte con el firmware C++; ningún cambio de un bit produce una trama válida). El login con Google no se prueba acá: depende de Credential Manager y Supabase, que requieren un dispositivo/emulador real.
 
 `SerialLinkFirmwareTest` ejecuta el enlace serial **real de la app contra el firmware real del sensor** compilado en el computador (`firmware/sensor/test/host_sim.cpp`, requiere `g++`; si no hay, se omite): lecturas, ruido de arranque, instrucciones, tramas dañadas, cable desenchufado y reintentos. `SyncManagerTest` y `SensorRepositoryTest` cubren la cola y la subida (sin internet, por lotes y en orden, reintentos, error de base de datos local, reenvío sin duplicar, tope de capacidad, limpieza que no borra lo no subido). Una prueba de punta a punta recorre **sensor → app cerrada un rato → teléfono sin internet → Supabase** y comprueba que cada lectura de ese periodo llega a la nube una sola vez. `AutomationControllerTest`, `AdaptiveSamplerTest`, `DischargeEstimatorTest`, `AlertsTest` y `EnergyMonitorTest` cubren el automático (histéresis, tiempos mínimos, **sin datos = sin latidos**), el ahorro, la estimación de descarga y los avisos. Las pruebas del firmware solas: `firmware/sensor/test/run_tests.sh` y `firmware/relay/test/run_tests.sh` (modo seguro, incluido el desbordamiento de `millis()`).
 
@@ -203,11 +205,11 @@ firmware/
 
 ## ⚠️ Limitaciones conocidas
 
-- **La verificación (contraseña, TOTP y permisos) se hace en la app.** Los datos se leen de Supabase con la llave anónima, que viaja dentro del APK. Quien la extraiga puede leer los hashes, los secretos TOTP y los permisos, y saltarse los controles de la app. Para una protección real el siguiente paso es pasar a **Supabase Auth** (que trae MFA/TOTP nativo) con **RLS** por usuario, o validar en el servidor con funciones `SECURITY DEFINER`.
+- **La identidad ya la valida Supabase Auth** (login con Google), pero los permisos (`device_permissions`) todavía se leen con la llave anónima, que viaja dentro del APK, y solo tienen RLS de solo-lectura para `anon` (ver `docs/supabase_google_auth.sql`). Quien extraiga la llave puede leer la tabla de permisos completa (aunque no puede modificarla ni suplantar a nadie, porque eso sí lo protege Supabase Auth). Para cerrar esto del todo, el siguiente paso es una política RLS que compare `device_permissions.email` con `auth.jwt() ->> 'email'` del usuario autenticado, en vez de permitir el `SELECT` a cualquiera.
 - **La llave AES es compartida** por todos los relés y está en cada APK: los permisos por dispositivo se aplican en la app, no los impone el relé. Mejora posible: una llave distinta por relé entregada solo a los usuarios autorizados.
 - La telemetría UDP por Wi-Fi va **en claro**; solo los comandos a los relés están cifrados y autenticados. El enlace serial USB tiene detección de errores (CRC-16) pero no cifrado: es un cable físico.
 - El comando no lleva contador ni desafío: un comando capturado podría **reenviarse al mismo relé** (replay). Ya no sirve contra otro relé, pero sí contra el mismo.
-- El panel de simulación (`login_simulator_link`) se abre sin iniciar sesión; es una herramienta de desarrollo y debería quitarse de las versiones finales.
+- El panel de simulación se abre sin iniciar sesión, por eso **solo existe en las versiones de depuración** (`BuildConfig.DEBUG`); no aparece en release.
 - Un **latido grabado** podría reenviarse y mantener al relé fuera del modo seguro (no hay contador ni desafío); el modo seguro es una protección burda por ciclos, no un control por humedad.
 - Los dispositivos solo aparecen tras su primer mensaje; no se recuerdan entre sesiones.
 - Si el sensor está por cable, la app solo lo lee mientras esté abierta en la pantalla principal (no hay servicio en segundo plano): fuera de ahí, el buffer del sensor cubre el hueco.

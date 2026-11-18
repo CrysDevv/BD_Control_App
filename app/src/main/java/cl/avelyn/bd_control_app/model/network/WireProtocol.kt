@@ -57,15 +57,26 @@ object WireProtocol {
 
     /** Interpreta un datagrama UDP; devuelve null si no es un mensaje válido (se ignora). */
     fun parseDatagram(text: String): UdpMsg? = try {
-        val json = JSONObject(text)
-        if (json.optString("src") == "relay") {
+        val json = JSONObject(text.trim())
+        val src = json.optString("src")
+        val hasFanField = json.has("fan") || json.has("fan_on") || json.has("fanOn")
+        val isRelayMsg = (src == "relay" && hasFanField) || (hasFanField && !json.has("t") && !json.has("temp") && !json.has("temp_c"))
+
+        if (isRelayMsg) {
             val id = deviceId(json, DeviceIds.DEFAULT_RELAY)
-            if (json.has("fan") && id != null) UdpMsg.Relay(id, json.getInt("fan") == 1, failSafe = json.optInt("fs", 0) == 1) else null
-        } else if (json.has("t") && json.has("h")) {
-            val t = json.getDouble("t")
-            val h = json.getDouble("h")
+            val fanOn = when {
+                json.has("fan") -> json.optBoolean("fan", json.optInt("fan", 0) == 1)
+                json.has("fan_on") -> json.optBoolean("fan_on", json.optInt("fan_on", 0) == 1)
+                json.has("fanOn") -> json.optBoolean("fanOn", json.optInt("fanOn", 0) == 1)
+                else -> false
+            }
+            val fs = json.optBoolean("failsafe", json.optBoolean("failSafe", json.optInt("fs", 0) == 1))
+            if (id != null) UdpMsg.Relay(id, fanOn, failSafe = fs) else null
+        } else if (json.has("t") || json.has("temp") || json.has("temp_c")) {
+            val t = json.optDouble("temp", json.optDouble("temp_c", json.optDouble("t", Double.NaN)))
+            val h = json.optDouble("hum", json.optDouble("hum_pct", json.optDouble("h", Double.NaN)))
             val id = deviceId(json, DeviceIds.DEFAULT_SENSOR)
-            if (id != null && isPlausibleReading(t, h)) {
+            if (id != null && !t.isNaN() && !h.isNaN() && isPlausibleReading(t, h)) {
                 UdpMsg.Sensor(id, t.toFloat(), h.toFloat())
             } else null
         } else null

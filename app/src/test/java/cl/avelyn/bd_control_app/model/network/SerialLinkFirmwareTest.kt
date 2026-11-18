@@ -88,7 +88,7 @@ class SerialLinkFirmwareTest {
             if (!plugged) return PortOpenResult.NoDevice
             val process = if (persistent && processes.isNotEmpty()) processes.first() else {
                 val extra = if (args.contains("--boot-id")) emptyList() else listOf("--boot-id", boots.incrementAndGet().toString())
-                ProcessBuilder(listOf(simulator.absolutePath) + args + extra).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+                ProcessBuilder(listOf(simulator.absolutePath) + args + extra).redirectErrorStream(true).start()
                     .also { processes += it }
             }
             return PortOpenResult.Opened(ProcessPort(process, killOnClose = !persistent), "ESP32 (simulado)")

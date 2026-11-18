@@ -1,58 +1,106 @@
 package cl.avelyn.bd_control_app.model.repository
 
-import android.util.Base64
-import cl.avelyn.bd_control_app.model.security.PasswordHasher
-import cl.avelyn.bd_control_app.model.security.Totp
+import android.content.Context
+import android.util.Log
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
+import cl.avelyn.bd_control_app.BuildConfig
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.postgrest.from
-import io.github.jan.supabase.postgrest.query.Columns
-import kotlinx.serialization.Serializable
-import java.util.concurrent.ConcurrentHashMap
-
-/** Fila de la tabla `users` en Supabase. Ver `docs/supabase_2fa_permisos.sql` para crearla/ampliarla. */
-@Serializable
-private data class UserRow(
-    val username: String,
-    val password_hash: String,
-    val salt: String,
-    /** Secreto TOTP en Base32. Null mientras el usuario no tenga configurado el segundo paso. */
-    val totp_secret: String? = null
-)
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.Google
+import io.github.jan.supabase.auth.providers.builtin.IDToken
+import java.security.MessageDigest
+import java.util.UUID
 
 /**
- * Autenticación en dos pasos contra la tabla `users` de Supabase:
- * 1. algo que sabes: la contraseña, verificada con [PasswordHasher] contra el hash y la salt guardados;
- * 2. algo que tienes: un código TOTP ([Totp]) generado por la app de autenticación del usuario.
+ * Login con la cuenta de Google del usuario, contra Supabase Auth:
+ * 1. Credential Manager pide una cuenta de Google al teléfono (sin salir de la app) y entrega un idToken.
+ * 2. Ese idToken se valida en Supabase ([io.github.jan.supabase.auth.Auth]), que abre la sesión.
  *
- * Las cuentas se dan de alta una sola vez por SQL (ver `tools/new_user.py`), nunca desde la app.
- * Un código TOTP ya aceptado no se puede reutilizar (anti-replay), aunque se cierre sesión y se vuelva a entrar.
+ * Reemplaza el login manual anterior (usuario/contraseña + TOTP contra una tabla `users` propia,
+ * ver `docs/migracion_google_auth.md`): ahora la identidad la gestionan Google y Supabase, y ya no
+ * existe ninguna contraseña que guardar ni verificar en nuestro lado.
  */
-class AuthRepository(private val client: SupabaseClient) : Authenticator {
+class AuthRepository(
+    private val client: SupabaseClient,
+    private val appContext: Context
+) : Authenticator {
 
-    private val lastAcceptedStep = ConcurrentHashMap<String, Long>()
+    override suspend fun signInWithGoogle(activityContext: Context): GoogleSignInResult {
+        val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
+        if (webClientId.isBlank() || webClientId.contains("REEMPLAZAR")) {
+            Log.e(TAG, "google.webClientId no está configurado en local.properties")
+            return GoogleSignInResult.Error("Google Web Client ID no está configurado. Agrega 'google.webClientId' en local.properties.")
+        }
 
-    override suspend fun checkPassword(username: String, password: CharArray): PasswordCheck {
-        val user = client.from("users")
-            .select(columns = Columns.list("username", "password_hash", "salt", "totp_secret")) {
-                filter { eq("username", username) }
+        // Nonce de un solo uso: Google lo firma dentro del idToken y aquí se lo mandamos a Supabase
+        // en texto plano para que compruebe que es el mismo nonce (evita que un idToken capturado
+        // se pueda reutilizar más tarde).
+        val rawNonce = UUID.randomUUID().toString()
+        val hashedNonce = sha256(rawNonce)
+
+        val idToken = try {
+            val googleIdOption = GetGoogleIdOption.Builder()
+                .setServerClientId(webClientId)
+                .setFilterByAuthorizedAccounts(false) // también ofrece cuentas que nunca usaron esta app
+                .setAutoSelectEnabled(false) // siempre mostrar el selector de cuentas, nunca elegir solo
+                .setNonce(hashedNonce)
+                .build()
+
+            val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
+
+            val response = CredentialManager.create(activityContext).getCredential(activityContext, request)
+            GoogleIdTokenCredential.createFrom(response.credential.data).idToken
+        } catch (e: GetCredentialCancellationException) {
+            return GoogleSignInResult.Cancelled
+        } catch (e: NoCredentialException) {
+            return GoogleSignInResult.NoGoogleAccount
+        } catch (e: GetCredentialException) {
+            Log.w(TAG, "No se pudo abrir el selector de cuentas de Google: ${e.message}")
+            return GoogleSignInResult.Error("No se pudo abrir el selector de cuentas de Google: ${e.message}")
+        } catch (e: GoogleIdTokenParsingException) {
+            Log.w(TAG, "Credencial de Google inválida: ${e.message}")
+            return GoogleSignInResult.Error("Google devolvió una credencial inválida. Intenta de nuevo.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en inicio de sesión con Google: ${e.message}", e)
+            return GoogleSignInResult.Error("Error al validar con servidor: ${e.message ?: e.toString()}")
+        }
+
+        return try {
+            client.auth.signInWith(IDToken) {
+                this.idToken = idToken
+                provider = Google
+                nonce = rawNonce
             }
-            .decodeSingleOrNull<UserRow>() ?: return PasswordCheck.InvalidCredentials
-
-        val salt = Base64.decode(user.salt, Base64.NO_WRAP)
-        val expectedHash = Base64.decode(user.password_hash, Base64.NO_WRAP)
-        if (!PasswordHasher.verify(password, salt, expectedHash)) return PasswordCheck.InvalidCredentials
-
-        val secret = user.totp_secret?.takeIf { it.isNotBlank() }
-            ?.let { runCatching { Totp.decodeBase32(it) }.getOrNull() }
-            ?: return PasswordCheck.SecondStepNotConfigured
-        return PasswordCheck.NeedsSecondStep(PendingLogin(user.username, secret))
+            val email = client.auth.currentUserOrNull()?.email
+                ?: return GoogleSignInResult.Error("Tu cuenta de Google no tiene un correo asociado.")
+            GoogleSignInResult.Success(email)
+        } catch (e: Exception) {
+            Log.w(TAG, "Supabase rechazó el inicio de sesión con Google: ${e.message}")
+            GoogleSignInResult.Error("Supabase rechazó el inicio de sesión: ${e.message ?: "Revisa tu conexión o configuración de Supabase."}")
+        }
     }
 
-    override fun checkSecondStep(pending: PendingLogin, code: String): Boolean {
-        val last = lastAcceptedStep[pending.username] ?: -1L
-        val step = Totp.verify(pending.totpSecret, code.trim(), System.currentTimeMillis(), lastUsedStep = last)
-            ?: return false
-        lastAcceptedStep[pending.username] = step
-        return true
+    override suspend fun signOut() {
+        runCatching { client.auth.signOut() }
+        // Olvida la cuenta recordada por Credential Manager; si no, la próxima vez que se pida login
+        // puede auto-seleccionarse sola la misma cuenta y no dejar elegir otra.
+        runCatching { CredentialManager.create(appContext).clearCredentialState(ClearCredentialStateRequest()) }
+    }
+
+    companion object {
+        private const val TAG = "AuthRepository"
+
+        private fun sha256(value: String): String =
+            MessageDigest.getInstance("SHA-256")
+                .digest(value.toByteArray())
+                .joinToString("") { "%02x".format(it) }
     }
 }

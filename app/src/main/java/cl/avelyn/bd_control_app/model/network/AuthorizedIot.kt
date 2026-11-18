@@ -61,7 +61,30 @@ class AuthorizedSerialSensorPort(
         }
 }
 
-/** Junta varias fuentes de telemetría en una sola (hoy: Wi-Fi + el sensor conectado por USB). */
+/** Junta varias fuentes de telemetría en una sola (Wi-Fi, Bluetooth, USB serial). */
 class CompositeSensorDataSource(private vararg val sources: SensorDataSource) : SensorDataSource {
     override fun listen(): Flow<UdpMsg> = merge(*sources.map { it.listen() }.toTypedArray())
+}
+
+/** Junta varios transmisores de comandos en uno solo: prueba cada uno hasta que alguno tenga éxito. */
+class CompositeFanCommandSender(private vararg val senders: FanCommandSender) : FanCommandSender {
+    override suspend fun setFan(deviceId: String, on: Boolean): Result<RelayReply> {
+        var lastError: Throwable? = null
+        for (sender in senders) {
+            val res = sender.setFan(deviceId, on)
+            if (res.isSuccess) return res
+            lastError = res.exceptionOrNull()
+        }
+        return Result.failure(lastError ?: Exception("No se pudo enviar el comando a través de ningún transporte"))
+    }
+
+    override suspend fun heartbeat(deviceId: String): Result<RelayReply> {
+        var lastError: Throwable? = null
+        for (sender in senders) {
+            val res = sender.heartbeat(deviceId)
+            if (res.isSuccess) return res
+            lastError = res.exceptionOrNull()
+        }
+        return Result.failure(lastError ?: Exception("No se pudo enviar el latido a través de ningún transporte"))
+    }
 }

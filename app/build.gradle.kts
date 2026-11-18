@@ -28,14 +28,19 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "AES_KEY_HEX", "\"${secrets.getProperty("aes.key", "")}\"")
-        // "wifi" (ESP32 reales, por defecto) o "supabase" (simulador sin hardware)
+        // "bluetooth" (ESP32 por Bluetooth, por defecto), "wifi" (UDP/TCP) o "supabase" (simulador sin hardware)
         // false (por defecto) = no retener el MulticastLock del Wi-Fi (ahorra batería); true solo si el teléfono no recibe al relé
         buildConfigField("boolean", "WIFI_MULTICAST_LOCK", secrets.getProperty("iot.multicastLock", "false"))
         // true = también escucha al sensor conectado por el cable USB-C (ver SerialLink)
         buildConfigField("boolean", "SERIAL_ENABLED", secrets.getProperty("iot.serial", "true"))
-        buildConfigField("String", "IOT_TRANSPORT", "\"${secrets.getProperty("iot.transport", "wifi")}\"")
+        // "supabase" (Supabase en vivo, por defecto), "wifi", "bluetooth" o "dual"
+        buildConfigField("String", "IOT_TRANSPORT", "\"${secrets.getProperty("iot.transport", "supabase")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${secrets.getProperty("supabase.url", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${secrets.getProperty("supabase.anon.key", "")}\"")
+        // Client ID tipo "Web application" de Google Cloud Console (NO el de tipo "Android"):
+        // es el mismo que se configura en Supabase > Authentication > Providers > Google.
+        // Ver docs/migracion_google_auth.md.
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${secrets.getProperty("google.webClientId", "")}\"")
     }
 
     buildTypes {
@@ -94,8 +99,14 @@ dependencies {
     implementation(platform(libs.supabase.bom))
     implementation(libs.supabase.postgrest)
     implementation(libs.supabase.realtime)
+    implementation(libs.supabase.auth)
     implementation("io.ktor:ktor-client-okhttp:3.0.0")
     implementation(libs.kotlinx.serialization.json)
+
+    // Login con Google (botón nativo "Continuar con Google", sin salir de la app)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
 
     // Comunicación serial por USB (OTG) con el ESP32 del sensor; se descarga de JitPack (ver settings.gradle.kts)
     implementation("com.github.mik3y:usb-serial-for-android:3.11.0")

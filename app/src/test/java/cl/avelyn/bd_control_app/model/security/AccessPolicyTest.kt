@@ -63,11 +63,11 @@ class AccessPolicyTest {
     @Test
     fun `la sesion abre y cierra`() {
         val session = SessionManager()
-        session.open("ana", policy)
+        session.open("ana@gmail.com", policy)
         assertTrue(session.policy.canControl("rele-1"))
-        assertTrue(session.username == "ana")
+        assertTrue(session.email == "ana@gmail.com")
         session.close()
         assertFalse(session.policy.canView("rele-1"))
-        assertTrue(session.username == null)
+        assertTrue(session.email == null)
     }
 }

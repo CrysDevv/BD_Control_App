@@ -16,9 +16,6 @@ import cl.avelyn.bd_control_app.model.network.AuthorizedSensorDataSource
 import cl.avelyn.bd_control_app.model.network.FanCommandSender
 import cl.avelyn.bd_control_app.model.network.SensorDataSource
 import cl.avelyn.bd_control_app.model.network.SupabaseIotBridge
-import cl.avelyn.bd_control_app.model.network.WifiGuard
-import cl.avelyn.bd_control_app.model.network.WifiIotBridge
-import cl.avelyn.bd_control_app.model.network.WifiNetworkProvider
 import cl.avelyn.bd_control_app.model.repository.AuthRepository
 import cl.avelyn.bd_control_app.model.repository.DeviceAccessRepository
 import cl.avelyn.bd_control_app.model.repository.SensorRepository
@@ -37,6 +34,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
@@ -64,6 +63,7 @@ class AppContainer(context: Context) {
     ) {
         install(Postgrest)
         install(Realtime)
+        install(Auth)
     }
 
     /**
@@ -86,48 +86,41 @@ class AppContainer(context: Context) {
     /** Mide el consumo de batería del teléfono (una muestra por minuto, solo con la app a la vista). */
     val energyMonitor = EnergyMonitor(AndroidBatteryReader(context), visibility)
 
-    val authRepository = AuthRepository(supabaseClient)
+    val authRepository = AuthRepository(supabaseClient, context.applicationContext)
     val deviceAccessRepository = DeviceAccessRepository(supabaseClient)
 
     /** Usuario con sesión iniciada y sus permisos por dispositivo. Vacío (deniega todo) hasta completar el login. */
     val session = SessionManager()
-    private val wifiGuard = WifiGuard(context)
 
     /** Siempre disponible: lo usa la pantalla del simulador aunque el transporte activo sea Wi-Fi. */
-    val supabaseIotBridge = SupabaseIotBridge(supabaseClient, wifiGuard)
+    val supabaseIotBridge = SupabaseIotBridge(supabaseClient)
 
-    private val wifiIotBridge by lazy {
-        WifiIotBridge(WifiNetworkProvider(context, BuildConfig.WIFI_MULTICAST_LOCK), BuildConfig.AES_KEY_HEX)
-    }
-
-    private val useSupabase = BuildConfig.IOT_TRANSPORT == "supabase"
-
-    /**
-     * Sensor conectado por el cable USB-C (serial). Solo existe en modo Wi-Fi, si `iot.serial` no está
-     * en false y el teléfono soporta USB host. Un único enlace compartido por toda la app.
-     */
+    /** Sensor conectado por el cable USB-C (serial). Solo existe si `iot.serial` no está en false y el teléfono soporta USB host. */
     private val serialLink: SerialLink? by lazy {
         val usbHost = context.packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST)
-        if (!useSupabase && BuildConfig.SERIAL_ENABLED && usbHost) SerialLink(UsbSerialPortProvider(context)) else null
+        if (BuildConfig.SERIAL_ENABLED && usbHost) SerialLink(UsbSerialPortProvider(context)) else null
     }
 
     private val rawSensorSource: SensorDataSource
-        get() = when {
-            useSupabase -> supabaseIotBridge
-            else -> serialLink?.let { CompositeSensorDataSource(wifiIotBridge, it) } ?: wifiIotBridge
+        get() {
+            val sources = mutableListOf<SensorDataSource>(supabaseIotBridge)
+            serialLink?.let { sources.add(it) }
+            return if (sources.size == 1) sources[0] else CompositeSensorDataSource(*sources.toTypedArray())
         }
 
     /** Estado del enlace USB y configuración remota del sensor, con el mismo control de permisos. */
     val serialPort: SerialSensorPort get() = AuthorizedSerialSensorPort(serialLink ?: NoSerialPort, session)
 
-    // Los ViewModels reciben el transporte envuelto en el control de acceso por dispositivo: nunca
-    // ven ni comandan un dispositivo para el que el usuario no tenga permiso (ver AuthorizedIot.kt).
     val sensorDataSource: SensorDataSource
         get() = AuthorizedSensorDataSource(rawSensorSource, session)
     val fanCommandSender: FanCommandSender
-        get() = AuthorizedFanCommandSender(if (useSupabase) supabaseIotBridge else wifiIotBridge, session)
+        get() = AuthorizedFanCommandSender(supabaseIotBridge, session)
 
     init {
+        // Supabase Auth guarda la sesión de Google en el teléfono por defecto; a propósito no se
+        // restaura, igual que antes: cada apertura de la app pide de nuevo el selector de cuenta
+        // (ver SessionManager, que tampoco sobrevive al cierre de la app).
+        appScope.launch { runCatching { supabaseClient.auth.signOut() } }
         appScope.launch { syncManager.run() }
         appScope.launch { energyMonitor.run() }
     }

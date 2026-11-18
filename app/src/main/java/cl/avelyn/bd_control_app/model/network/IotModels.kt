@@ -8,6 +8,7 @@ enum class DeviceType { SENSOR, RELAY }
  * de Supabase (que representa un único sensor y un único relé).
  */
 object DeviceIds {
+    const val DEFAULT_ESP = "esp32"
     const val DEFAULT_SENSOR = "sensor"
     const val DEFAULT_RELAY = "rele"
 }

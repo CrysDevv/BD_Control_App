@@ -18,22 +18,28 @@ import kotlinx.coroutines.flow.callbackFlow
  * entonces ni los comandos TCP ni los broadcast UDP llegan. Por eso los sockets se atan
  * explícitamente a la red Wi-Fi con [Network.bindSocket] (ver [WifiIotBridge]).
  */
-class WifiNetworkProvider(context: Context, private val useMulticastLock: Boolean = false) {
+data class WifiInfoState(
+    val isConnected: Boolean = false,
+    val isListeningUdp: Boolean = true
+)
+
+/**
+ * Acceso a la red Wi-Fi del teléfono para hablar con los ESP32.
+ */
+class WifiNetworkProvider(context: Context, private val useMulticastLock: Boolean = true) {
 
     private val appContext = context.applicationContext
     private val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
-    private val wifi = appContext.getSystemService(WifiManager::class.java)
+    private val wifi by lazy { appContext.getSystemService(WifiManager::class.java) }
 
     /** La red Wi-Fi conectada ahora mismo (haya o no internet en ella), o null si no hay. */
-    @Suppress("DEPRECATION") // allNetworks sigue funcionando; es la forma más simple de no depender de "validated"
+    @Suppress("DEPRECATION")
     fun currentWifi(): Network? = connectivity.allNetworks.firstOrNull { network ->
         connectivity.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
     }
 
     /**
      * Emite una vez al empezar y luego cada vez que el teléfono (re)conecta a una red Wi-Fi.
-     * [WifiIotBridge] lo usa para volver a abrir el socket UDP: tras un cambio de red el socket
-     * anterior queda atado a una red que ya no existe y deja de recibir sin dar error.
      */
     fun wifiAvailableEvents(): Flow<Unit> = callbackFlow {
         val callback = object : ConnectivityManager.NetworkCallback() {
@@ -49,17 +55,40 @@ class WifiNetworkProvider(context: Context, private val useMulticastLock: Boolea
         awaitClose { connectivity.unregisterNetworkCallback(callback) }
     }
 
-    // ENERGÍA: por defecto NO se toma. Retener el MulticastLock obliga al Wi-Fi a recibir todo el tráfico multicast y, según
-    // la documentación de Android, "puede causar un consumo de batería notable". Los anuncios del relé son BROADCAST,
-    // que Android entrega sin necesitar el lock. Si en algún teléfono no llegaran, activar con `iot.multicastLock=true`.
-    private val multicastLock: WifiManager.MulticastLock =
+    /** Estado reactivo de la red Wi-Fi para actualizar la UI. */
+    fun wifiNetworkState(): Flow<WifiInfoState> = callbackFlow {
+        val update = {
+            val isWifi = currentWifi() != null
+            trySend(WifiInfoState(isConnected = isWifi, isListeningUdp = true))
+        }
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { update() }
+            override fun onLost(network: Network) { update() }
+        }
+
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .build()
+
+        update()
+        connectivity.registerNetworkCallback(request, callback)
+        awaitClose { connectivity.unregisterNetworkCallback(callback) }
+    }
+
+    private val multicastLock: WifiManager.MulticastLock by lazy {
         wifi.createMulticastLock("bd_control_udp").apply { setReferenceCounted(false) }
+    }
 
     fun acquireMulticastLock() {
-        if (useMulticastLock && !multicastLock.isHeld) multicastLock.acquire()
+        if (useMulticastLock && !multicastLock.isHeld) {
+            try { multicastLock.acquire() } catch (_: Exception) {}
+        }
     }
 
     fun releaseMulticastLock() {
-        if (multicastLock.isHeld) multicastLock.release()
+        if (useMulticastLock && multicastLock.isHeld) {
+            try { multicastLock.release() } catch (_: Exception) {}
+        }
     }
 }

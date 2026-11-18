@@ -1,127 +1,162 @@
 package cl.avelyn.bd_control_app.model.network
 
+import android.util.Log
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.decodeRecord
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.transform
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.util.UUID
 
 private const val TABLE = "bodega_status"
 private const val ROW_ID = 1
 
-// Objetos parciales: Postgrest actualiza solo las columnas presentes en cada upsert,
-// así que cada lado del sistema solo "toca" las columnas que le corresponden.
 @Serializable
-private data class TelemetryUpsert(val id: Int = ROW_ID, val temp_c: Double, val hum_pct: Double)
-
-@Serializable
-private data class CommandUpsert(val id: Int = ROW_ID, val fan_command: Boolean)
-
-@Serializable
-private data class StateUpsert(val id: Int = ROW_ID, val fan_state: Boolean)
-
-/** Fila completa tal como la entrega Realtime en cada cambio (todas las columnas, no solo las que cambiaron). */
-@Serializable
-private data class BodegaRow(
-    val id: Int,
-    val temp_c: Double? = null,
-    val hum_pct: Double? = null,
-    val fan_command: Boolean? = null,
-    val fan_state: Boolean? = null
+private data class ManualFanUpdate(
+    @SerialName("mode") val mode: String,
+    @SerialName("fan_command") val fan_command: Boolean,
 )
 
-/**
- * Simula la comunicación entre los dos ESP32 usando una única fila de Postgres
- * (tabla `bodega_status`, ver el script SQL del informe) sincronizada en vivo con
- * Supabase Realtime, mientras no se cuenta con el hardware real. Implementa
- * [SensorDataSource] y [FanCommandSender], así que pasar a una versión Wi-Fi real
- * cuando llegue el ESP32 es solo cambiar qué se instancia en
- * [cl.avelyn.bd_control_app.di.AppContainer].
- *
- * Columnas de `bodega_status` (fila única, id = 1):
- * - temp_c, hum_pct   -> las escribe el dispositivo emisor (simulador), equivalente a la telemetría UDP.
- * - fan_command       -> la escribe esta app, equivalente al comando TCP.
- * - fan_state         -> la escribe el simulador tras "ejecutar" el comando, equivalente al estado anunciado por el relé.
- *
- * Limitación documentada: la tabla queda sin Row Level Security (o con una política
- * abierta) para este proyecto académico; en una app real se restringiría con
- * Supabase Auth y políticas RLS por usuario.
- *
- * Requisito de Wi-Fi: toda escritura ([setFan], [publishTelemetry], [reportState]) exige
- * primero pasar [WifiGuard.isOnExpectedWifi]. Solo lectura (recibir telemetría o estado)
- * no lo exige. Ver [WifiGuard] para el porqué esto garantiza que ambos dispositivos
- * estén en la misma red.
- */
+@Serializable
+private data class AutoModeUpdate(
+    @SerialName("mode") val mode: String,
+)
+
+@Serializable
+private data class ThresholdsUpdate(
+    @SerialName("hum_on") val hum_on: Double,
+    @SerialName("hum_off") val hum_off: Double,
+)
+
 class SupabaseIotBridge(
-    private val client: SupabaseClient,
-    private val wifiGuard: WifiGuard
+    private val client: SupabaseClient
 ) : SensorDataSource, FanCommandSender {
 
-    private val realtimeChannel = client.realtime.channel("bodega_status_changes")
-    private var isSubscribed = false
-
-    private fun requireWifi() {
-        check(wifiGuard.isOnExpectedWifi()) {
-            "Debes estar conectado a la red Wi-Fi \"${WifiGuard.EXPECTED_SSID}\" para enviar datos"
-        }
+    suspend fun getStatus(): Result<BodegaStatusDto?> = runCatching {
+        client.from(TABLE).select {
+            filter { eq("id", ROW_ID) }
+        }.decodeSingleOrNull<BodegaStatusDto>()
     }
 
-    private suspend fun ensureSubscribed() {
-        if (isSubscribed) return
-        realtimeChannel.subscribe()
-        isSubscribed = true
-    }
-
-    /** Un Flow con la fila completa cada vez que cambia, usado tanto por [listen] como por [listenForCommands]. */
-    private fun rowChanges(): Flow<BodegaRow> = realtimeChannel
-        .postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = TABLE }
-        .onStart { ensureSubscribed() }
-        .map { it.decodeRecord<BodegaRow>() }
-
-    // ---------- Lado "app de monitoreo": recibe telemetría y estado ----------
-
-    override fun listen(): Flow<UdpMsg> = rowChanges().transform { row ->
-        if (row.temp_c != null && row.hum_pct != null) {
-            emit(UdpMsg.Sensor(DeviceIds.DEFAULT_SENSOR, tempC = row.temp_c.toFloat(), humPct = row.hum_pct.toFloat()))
+    fun observeStatus(): Flow<BodegaStatusDto> = channelFlow {
+        // 1. Consulta inicial REST API
+        try {
+            val initial = getStatus().getOrNull()
+            if (initial != null) send(initial)
+        } catch (e: Exception) {
+            Log.w("SupabaseIotBridge", "Error al obtener estado inicial: ${e.message}")
         }
-        row.fan_state?.let { emit(UdpMsg.Relay(DeviceIds.DEFAULT_RELAY, fanOn = it)) }
+
+        // 2. Realtime listener (Postgres Changes)
+        val realtimeJob = launch {
+            var channel: RealtimeChannel? = null
+            try {
+                val ch = client.realtime.channel("bodega_status_${UUID.randomUUID()}")
+                channel = ch
+                val changeFlow = ch.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = TABLE }
+                ch.subscribe()
+                changeFlow
+                    .map { it.decodeRecord<BodegaStatusDto>() }
+                    .filter { it.id == ROW_ID }
+                    .collect { send(it) }
+            } catch (e: Exception) {
+                Log.w("SupabaseIotBridge", "Error en Realtime: ${e.message}")
+            } finally {
+                channel?.let { ch ->
+                    try {
+                        ch.unsubscribe()
+                        client.realtime.removeChannel(ch)
+                    } catch (e: Exception) {
+                        Log.w("SupabaseIotBridge", "Error al cerrar canal Realtime: ${e.message}")
+                    }
+                }
+            }
+        }
+
+        // 3. Polling de respaldo cada 3 segundos
+        val pollingJob = launch {
+            while (isActive) {
+                delay(3000L)
+                try {
+                    val current = getStatus().getOrNull()
+                    if (current != null) send(current)
+                } catch (_: Exception) {
+                }
+            }
+        }
+
+        awaitClose {
+            realtimeJob.cancel()
+            pollingJob.cancel()
+        }
     }
 
     /**
-     * Equivalente al comando TCP: publica la intención, la confirmación real llega por [listen].
-     * [deviceId] se ignora: el simulador solo representa un único relé.
+     * Escribe mode='manual' y fan_command=on en UN SOLO UPDATE filtrando por id = 1.
      */
-    /** El simulador no tiene un relé real que deba oír latidos. */
-    override suspend fun heartbeat(deviceId: String): Result<RelayReply> = Result.success(RelayReply(ok = true, fanOn = false))
+    suspend fun setFanManual(on: Boolean): Result<Unit> = runCatching {
+        client.from(TABLE).update(ManualFanUpdate(mode = "manual", fan_command = on)) {
+            filter { eq("id", ROW_ID) }
+        }
+        Unit
+    }
+
+    /**
+     * Escribe solo mode='auto' en UN SOLO UPDATE filtrando por id = 1 (no toca fan_command).
+     */
+    suspend fun setAuto(): Result<Unit> = runCatching {
+        client.from(TABLE).update(AutoModeUpdate(mode = "auto")) {
+            filter { eq("id", ROW_ID) }
+        }
+        Unit
+    }
+
+    /**
+     * Valida que hum_on > hum_off. Si se cumple, escribe hum_on y hum_off filtrando por id = 1.
+     */
+    suspend fun setThresholds(on: Float, off: Float): Result<Unit> {
+        if (on <= off) {
+            return Result.failure(IllegalArgumentException("La humedad de encendido (hum_on) debe ser mayor que la de apagado (hum_off)"))
+        }
+        return runCatching {
+            client.from(TABLE).update(ThresholdsUpdate(hum_on = on.toDouble(), hum_off = off.toDouble())) {
+                filter { eq("id", ROW_ID) }
+            }
+            Unit
+        }
+    }
+
+    override fun listen(): Flow<UdpMsg> = observeStatus().transform { status ->
+        if (status.temp_c != null && status.hum_pct != null) {
+            emit(UdpMsg.Sensor(DeviceIds.DEFAULT_ESP, tempC = status.temp_c.toFloat(), humPct = status.hum_pct.toFloat()))
+        }
+        val fanReal = status.fan_state ?: false
+        emit(UdpMsg.Relay(DeviceIds.DEFAULT_ESP, fanOn = fanReal))
+    }
+
+    override suspend fun heartbeat(deviceId: String): Result<RelayReply> = runCatching {
+        val status = getStatus().getOrNull()
+        RelayReply(ok = true, fanOn = status?.fan_state ?: false)
+    }.recover {
+        RelayReply(ok = true, fanOn = false)
+    }
 
     override suspend fun setFan(deviceId: String, on: Boolean): Result<RelayReply> = runCatching {
-        requireWifi()
-        client.from(TABLE).upsert(CommandUpsert(fan_command = on))
+        setFanManual(on).getOrThrow()
         RelayReply(ok = true, fanOn = on)
-    }
-
-    // ---------- Lado "dispositivo emisor" (simulador del sensor + relé) ----------
-
-    /** Publica una lectura, tal como lo haría el sensor real cada 2 segundos. */
-    suspend fun publishTelemetry(tempC: Float, humPct: Float) {
-        requireWifi()
-        client.from(TABLE).upsert(TelemetryUpsert(temp_c = tempC.toDouble(), hum_pct = humPct.toDouble()))
-    }
-
-    /** Escucha los comandos que envía la app de monitoreo, como lo haría el relé real. */
-    fun listenForCommands(): Flow<Boolean> = rowChanges().mapNotNull { it.fan_command }
-
-    /** Confirma que el ventilador "físico" simulado ya quedó en ese estado. */
-    suspend fun reportState(fanOn: Boolean) {
-        requireWifi()
-        client.from(TABLE).upsert(StateUpsert(fan_state = fanOn))
     }
 }

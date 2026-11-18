@@ -7,7 +7,7 @@ import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.serialization.Serializable
 
-/** Fila de la tabla `device_permissions`. Ver `docs/supabase_2fa_permisos.sql`. */
+/** Fila de la tabla `device_permissions`. Ver `docs/supabase_google_auth.sql`. */
 @Serializable
 private data class PermissionRow(
     val device_id: String,
@@ -15,13 +15,13 @@ private data class PermissionRow(
     val can_control: Boolean = false
 )
 
-/** Carga desde Supabase qué dispositivos puede consultar y controlar cada usuario. */
+/** Carga desde Supabase qué dispositivos puede consultar y controlar cada usuario (por su correo de Google). */
 class DeviceAccessRepository(private val client: SupabaseClient) : DeviceAccessSource {
 
-    override suspend fun policyFor(username: String): AccessPolicy {
+    override suspend fun policyFor(email: String): AccessPolicy {
         val rows = client.from("device_permissions")
             .select(columns = Columns.list("device_id", "can_view", "can_control")) {
-                filter { eq("username", username) }
+                filter { eq("email", email) }
             }
             .decodeList<PermissionRow>()
         return AccessPolicy(rows.map { DevicePermission(it.device_id, it.can_view, it.can_control) })

@@ -1,8 +1,5 @@
 package cl.avelyn.bd_control_app.ui.screens
 
-import android.Manifest
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,7 +16,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,8 +31,8 @@ import cl.avelyn.bd_control_app.viewmodel.SimulatorViewModel
  * Panel de desarrollador: este es el "dispositivo que envía los datos". Se instala en un
  * segundo teléfono (o se abre en un segundo emulador) para simular, mientras no está el
  * hardware, lo que harían los dos ESP32: reportar temperatura/humedad y ejecutar el
- * comando del ventilador que llega desde la app de monitoreo. Solicita el permiso de
- * ubicación al entrar, que WifiGuard necesita para leer el SSID actual.
+ * comando del ventilador que llega desde la app de monitoreo. Solo existe en las versiones
+ * de depuración (ver AppNavigation y LoginScreen).
  */
 @Composable
 fun SimulatorScreen(
@@ -44,14 +40,6 @@ fun SimulatorScreen(
     viewModel: SimulatorViewModel = viewModel(factory = Factories)
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
-
-    val locationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { /* concedido o no, WifiGuard revisa igual al momento de escribir */ }
-
-    LaunchedEffect(Unit) {
-        locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
 
     Column(
         modifier = Modifier

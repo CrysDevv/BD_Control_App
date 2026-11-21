@@ -142,37 +142,22 @@ app/src/main/java/cl/avelyn/bd_control_app/
 ├── ui/              Compose: dashboard, historial, login, simulador
 └── di/              AppContainer: elige el transporte (wifi | supabase)
 firmware/
-├── sensor/sensor.ino      ESP32 + DHT11 (GPIO 4): serial USB (+ Wi-Fi opcional)
-├── sensor/bd_serial.h     protocolo serial en C++ puro (se prueba en el computador)
-├── sensor/test/           pruebas del protocolo y simulador del sensor (run_tests.sh)
-├── relay/relay.ino        ESP32 + relé (GPIO 26): servidor TCP cifrado + anuncios UDP + modo seguro
-├── relay/relay_failsafe.h modo seguro en C++ puro (se prueba en el computador)
-└── relay/test/            pruebas del modo seguro (run_tests.sh)
+└── esp32_supabase/esp32_supabase.ino  ESP32: Portal Cautivo Wi-Fi + Supabase (DHT11 + relé de ventilación)
 ```
 
 ---
 
 ## 🛠️ Puesta en marcha
 
-### 1. Firmware (`firmware/`)
+### 1. Firmware (`firmware/esp32_supabase/esp32_supabase.ino`)
 
-**Sensor (`sensor.ino`)** — no necesita Wi-Fi ni `config.h`. Instala *DHT sensor library* y *Adafruit Unified Sensor*, elige la placa (p. ej. *ESP32 Dev Module*) y súbelo. Opcional, en un `config.h` propio (está en `.gitignore`):
+Abre `firmware/esp32_supabase/esp32_supabase.ino` en Arduino IDE.
+Requiere las librerías **ArduinoJson** (v7) y **DHT sensor library**.
 
-```cpp
-#define DEVICE_ID "sensor-bodega"   // único por dispositivo; por defecto "sensor-1"
-#define SENSOR_WIFI_TELEMETRY       // además por Wi-Fi (necesita WIFI_SSID y WIFI_PASS)
-```
-
-> Si ya tenías el sensor funcionando por Wi-Fi: tras volver a flashearlo **deja de usar Wi-Fi** salvo que agregues `SENSOR_WIFI_TELEMETRY`.
-
-**Relé (`relay.ino`)** — necesita su `config.h` (está en `.gitignore`) con `WIFI_SSID`, `WIFI_PASS` y la llave AES (`AES_KEY_HEX` / `loadKeys()`). Opciones, todas opcionales:
-
-```cpp
-#define DEVICE_ID "rele-bodega"     // único por relé; por defecto "rele-1"
-#define NETWORK_MODE_STA            // unirse al router en vez de crear BODEGA_NET
-#define FORWARD_SENSOR_UDP 0        // no reenviar telemetría Wi-Fi de sensores
-#define FAILSAFE_SILENCE_MIN 10     // minutos sin oír a la app para entrar al modo seguro (0 = desactivado)
-#define FAILSAFE_MODE 0             // 0 = ventilar por ciclos, 1 = dejar como está, 2 = apagar
+1. Selecciona la placa ESP32 Dev Module y el puerto serie.
+2. Flashea el ESP32.
+3. Al encender por primera vez (o tras presionar BOOT durante 3 segundos), creará la red Wi-Fi AP `ESP32_Config_Bodega` con un portal cautivo en `http://192.168.4.1` para configurar las credenciales Wi-Fi.
+4. Una vez conectado a la red Wi-Fi, el ESP32 sincronizará telemetría y estado del relé directamente con Supabase (`bodega_status`).
 #define FAILSAFE_ON_MIN 5           // modo 0: minutos encendido...
 #define FAILSAFE_PERIOD_MIN 30      // ...de cada tantos minutos
 ```

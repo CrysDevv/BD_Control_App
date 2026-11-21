@@ -3,27 +3,25 @@ package cl.avelyn.bd_control_app.ui.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
+import cl.avelyn.bd_control_app.ui.theme.OrangePrimary
 
 /**
- * Gráfico de línea minimalista para el historial (temperatura o humedad en el tiempo).
- * No usa ninguna librería de gráficos: solo `Canvas` de Compose, suficiente para el alcance
- * de este proyecto.
+ * Gráfico de línea adaptado al tema oscuro con acento naranja.
  */
 @Composable
 fun LineChart(
     values: List<Float>,
     modifier: Modifier = Modifier
 ) {
-    val lineColor = MaterialTheme.colorScheme.primary
+    val lineColor = OrangePrimary
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(180.dp)
+            .height(140.dp)
     ) {
         if (values.size < 2) return@Canvas
 

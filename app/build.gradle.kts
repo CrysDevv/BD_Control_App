@@ -37,10 +37,6 @@ android {
         buildConfigField("String", "IOT_TRANSPORT", "\"${secrets.getProperty("iot.transport", "supabase")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${secrets.getProperty("supabase.url", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${secrets.getProperty("supabase.anon.key", "")}\"")
-        // Client ID tipo "Web application" de Google Cloud Console (NO el de tipo "Android"):
-        // es el mismo que se configura en Supabase > Authentication > Providers > Google.
-        // Ver docs/migracion_google_auth.md.
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${secrets.getProperty("google.webClientId", "")}\"")
     }
 
     buildTypes {
@@ -68,6 +64,7 @@ dependencies {
     // Compose
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation(libs.firebase.auth)
     debugImplementation("androidx.compose.ui:ui-tooling")
@@ -102,11 +99,6 @@ dependencies {
     implementation(libs.supabase.auth)
     implementation("io.ktor:ktor-client-okhttp:3.0.0")
     implementation(libs.kotlinx.serialization.json)
-
-    // Login con Google (botón nativo "Continuar con Google", sin salir de la app)
-    implementation(libs.androidx.credentials)
-    implementation(libs.androidx.credentials.play.services.auth)
-    implementation(libs.googleid)
 
     // Comunicación serial por USB (OTG) con el ESP32 del sensor; se descarga de JitPack (ver settings.gradle.kts)
     implementation("com.github.mik3y:usb-serial-for-android:3.11.0")

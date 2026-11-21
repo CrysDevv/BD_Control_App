@@ -1,10 +1,5 @@
 # Copiar como local.properties (en la raíz del proyecto Android) y completar.
 # NUNCA subir local.properties a git.
-#
-# Generar cada llave con:
-#   openssl rand -hex 32
-#
-# aes.key debe ser igual a AES_KEY_HEX en firmware/relay/config.h
 
 sdk.dir=/ruta/a/tu/Android/Sdk
 
@@ -19,10 +14,6 @@ iot.serial=true
 # Ahorro de batería: por defecto el Wi-Fi NO retiene el MulticastLock. Poner true solo si el teléfono no ve al relé.
 iot.multicastLock=false
 
-# Solo necesarios para el login y para el modo "supabase"
+# Necesarios para la autenticación por correo OTP y para el modo "supabase"
 supabase.url=https://TU-PROYECTO.supabase.co
 supabase.anon.key=REEMPLAZAR
-
-# Login con Google: Client ID tipo "Web application" de Google Cloud Console (el mismo que se
-# configura en Supabase > Authentication > Providers > Google). Ver docs/migracion_google_auth.md.
-google.webClientId=REEMPLAZAR.apps.googleusercontent.com

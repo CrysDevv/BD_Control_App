@@ -14,6 +14,7 @@ import cl.avelyn.bd_control_app.model.network.SensorDataSource
 import cl.avelyn.bd_control_app.model.network.SerialLinkState
 import cl.avelyn.bd_control_app.model.network.SerialSensorPort
 import cl.avelyn.bd_control_app.model.network.SupabaseIotBridge
+import cl.avelyn.bd_control_app.model.network.UdpMsg
 import cl.avelyn.bd_control_app.model.repository.SensorRepository
 import cl.avelyn.bd_control_app.model.security.SessionManager
 import cl.avelyn.bd_control_app.model.sync.SyncStatus
@@ -87,6 +88,22 @@ class DashboardViewModel(
     }
 
     private fun onStatusUpdated(status: BodegaStatusDto) {
+        val temp = status.temp_c
+        val hum = status.hum_pct
+        if (temp != null && hum != null) {
+            viewModelScope.launch {
+                try {
+                    sensorRepository.record(
+                        UdpMsg.Sensor(
+                            deviceId = "esp32",
+                            tempC = temp.toFloat(),
+                            humPct = hum.toFloat()
+                        )
+                    )
+                } catch (_: Exception) {}
+            }
+        }
+
         val nowMs = System.currentTimeMillis()
         val lastSeenMs = parseLastSeen(status.last_seen)
         val isOnline = lastSeenMs != null && (nowMs - lastSeenMs) < ONLINE_THRESHOLD_MS

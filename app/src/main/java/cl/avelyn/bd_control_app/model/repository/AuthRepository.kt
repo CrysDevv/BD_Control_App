@@ -1,106 +1,163 @@
 package cl.avelyn.bd_control_app.model.repository
 
-import android.content.Context
+import android.net.Uri
 import android.util.Log
-import androidx.credentials.ClearCredentialStateRequest
-import androidx.credentials.CredentialManager
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.exceptions.GetCredentialCancellationException
-import androidx.credentials.exceptions.GetCredentialException
-import androidx.credentials.exceptions.NoCredentialException
-import cl.avelyn.bd_control_app.BuildConfig
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
+import cl.avelyn.bd_control_app.model.security.PasswordHasher
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.providers.Google
-import io.github.jan.supabase.auth.providers.builtin.IDToken
-import java.security.MessageDigest
-import java.util.UUID
+import io.github.jan.supabase.auth.providers.builtin.OTP
+import io.github.jan.supabase.postgrest.from
+import kotlinx.serialization.Serializable
+import java.util.Base64
+
+@Serializable
+private data class UserDbRow(
+    val username: String,
+    val password_hash: String,
+    val salt: String,
+    val email: String? = null
+)
 
 /**
- * Login con la cuenta de Google del usuario, contra Supabase Auth:
- * 1. Credential Manager pide una cuenta de Google al teléfono (sin salir de la app) y entrega un idToken.
- * 2. Ese idToken se valida en Supabase ([io.github.jan.supabase.auth.Auth]), que abre la sesión.
- *
- * Reemplaza el login manual anterior (usuario/contraseña + TOTP contra una tabla `users` propia,
- * ver `docs/migracion_google_auth.md`): ahora la identidad la gestionan Google y Supabase, y ya no
- * existe ninguna contraseña que guardar ni verificar en nuestro lado.
+ * Autenticación en dos pasos:
+ * 1. [signInWithPassword]: Valida usuario y contraseña contra la tabla `users` de Supabase.
+ * 2. [sendOtp]: Envía correo con código OTP / Magic Link con redirección a `bdcontrol://login`.
+ * 3. [verifyOtp]: Comprueba el código OTP de 6 dígitos.
+ * 4. [verifyDeepLink]: Procesa automáticamente el enlace presionado desde la app de correo.
  */
 class AuthRepository(
-    private val client: SupabaseClient,
-    private val appContext: Context
+    private val client: SupabaseClient
 ) : Authenticator {
 
-    override suspend fun signInWithGoogle(activityContext: Context): GoogleSignInResult {
-        val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID
-        if (webClientId.isBlank() || webClientId.contains("REEMPLAZAR")) {
-            Log.e(TAG, "google.webClientId no está configurado en local.properties")
-            return GoogleSignInResult.Error("Google Web Client ID no está configurado. Agrega 'google.webClientId' en local.properties.")
+    override suspend fun signInWithPassword(username: String, password: CharArray): PasswordAuthResult {
+        val trimmedUsername = username.trim()
+        if (trimmedUsername.isBlank()) {
+            return PasswordAuthResult.Error("Por favor ingresa un nombre de usuario.")
         }
 
-        // Nonce de un solo uso: Google lo firma dentro del idToken y aquí se lo mandamos a Supabase
-        // en texto plano para que compruebe que es el mismo nonce (evita que un idToken capturado
-        // se pueda reutilizar más tarde).
-        val rawNonce = UUID.randomUUID().toString()
-        val hashedNonce = sha256(rawNonce)
-
-        val idToken = try {
-            val googleIdOption = GetGoogleIdOption.Builder()
-                .setServerClientId(webClientId)
-                .setFilterByAuthorizedAccounts(false) // también ofrece cuentas que nunca usaron esta app
-                .setAutoSelectEnabled(false) // siempre mostrar el selector de cuentas, nunca elegir solo
-                .setNonce(hashedNonce)
-                .build()
-
-            val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
-
-            val response = CredentialManager.create(activityContext).getCredential(activityContext, request)
-            GoogleIdTokenCredential.createFrom(response.credential.data).idToken
-        } catch (e: GetCredentialCancellationException) {
-            return GoogleSignInResult.Cancelled
-        } catch (e: NoCredentialException) {
-            return GoogleSignInResult.NoGoogleAccount
-        } catch (e: GetCredentialException) {
-            Log.w(TAG, "No se pudo abrir el selector de cuentas de Google: ${e.message}")
-            return GoogleSignInResult.Error("No se pudo abrir el selector de cuentas de Google: ${e.message}")
-        } catch (e: GoogleIdTokenParsingException) {
-            Log.w(TAG, "Credencial de Google inválida: ${e.message}")
-            return GoogleSignInResult.Error("Google devolvió una credencial inválida. Intenta de nuevo.")
+        val rows = try {
+            client.from("users")
+                .select {
+                    filter { eq("username", trimmedUsername) }
+                }
+                .decodeList<UserDbRow>()
         } catch (e: Exception) {
-            Log.e(TAG, "Error en inicio de sesión con Google: ${e.message}", e)
-            return GoogleSignInResult.Error("Error al validar con servidor: ${e.message ?: e.toString()}")
+            Log.w(TAG, "Error al consultar usuario '$trimmedUsername': ${e.message}", e)
+            return PasswordAuthResult.Error("Error de conexión con la base de datos: ${e.message}")
         }
 
+        val userRow = rows.firstOrNull()
+            ?: return PasswordAuthResult.Error("Usuario o contraseña incorrectos.")
+
+        val saltBytes = try {
+            Base64.getDecoder().decode(userRow.salt)
+        } catch (e: Exception) {
+            Log.e(TAG, "Salt inválido en la base de datos para '$trimmedUsername'", e)
+            return PasswordAuthResult.Error("Formato de datos de usuario inválido en el servidor.")
+        }
+
+        val expectedHashBytes = try {
+            Base64.getDecoder().decode(userRow.password_hash)
+        } catch (e: Exception) {
+            Log.e(TAG, "Hash inválido en la base de datos para '$trimmedUsername'", e)
+            return PasswordAuthResult.Error("Formato de datos de usuario inválido en el servidor.")
+        }
+
+        val passwordMatches = try {
+            PasswordHasher.verify(password, saltBytes, expectedHashBytes)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error al verificar hash de contraseña para '$trimmedUsername'", e)
+            false
+        }
+
+        if (!passwordMatches) {
+            return PasswordAuthResult.Error("Usuario o contraseña incorrectos.")
+        }
+
+        val userEmail = userRow.email?.trim()
+        if (userEmail.isNullOrBlank()) {
+            return PasswordAuthResult.Error("El usuario '$trimmedUsername' no tiene un correo electrónico configurado en la base de datos.")
+        }
+
+        return PasswordAuthResult.Success(username = userRow.username, email = userEmail)
+    }
+
+    override suspend fun sendOtp(email: String): OtpSendResult {
         return try {
-            client.auth.signInWith(IDToken) {
-                this.idToken = idToken
-                provider = Google
-                nonce = rawNonce
+            client.auth.signInWith(OTP, redirectUrl = REDIRECT_URL) {
+                this.email = email
             }
-            val email = client.auth.currentUserOrNull()?.email
-                ?: return GoogleSignInResult.Error("Tu cuenta de Google no tiene un correo asociado.")
-            GoogleSignInResult.Success(email)
+            OtpSendResult.Success
         } catch (e: Exception) {
-            Log.w(TAG, "Supabase rechazó el inicio de sesión con Google: ${e.message}")
-            GoogleSignInResult.Error("Supabase rechazó el inicio de sesión: ${e.message ?: "Revisa tu conexión o configuración de Supabase."}")
+            Log.w(TAG, "Error enviando correo a $email: ${e.message}", e)
+            val msg = e.message ?: ""
+            val userFriendlyMessage = when {
+                msg.contains("rate limit", ignoreCase = true) || msg.contains("429") ->
+                    "Se ha alcanzado el límite de envíos de correo de Supabase. Por favor espera 1 minuto antes de volver a intentar."
+                else -> msg.ifBlank { "No se pudo enviar el correo de autenticación. Revisa tu conexión." }
+            }
+            OtpSendResult.Error(userFriendlyMessage)
+        }
+    }
+
+    override suspend fun verifyOtp(email: String, code: String): OtpVerifyResult {
+        return try {
+            client.auth.verifyEmailOtp(
+                type = OtpType.Email.EMAIL,
+                email = email,
+                token = code.trim()
+            )
+            val verifiedEmail = client.auth.currentUserOrNull()?.email ?: email
+            OtpVerifyResult.Success(verifiedEmail)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error verificando OTP para $email: ${e.message}", e)
+            OtpVerifyResult.Error("Código OTP inválido o expirado. Intenta de nuevo.")
+        }
+    }
+
+    override suspend fun verifyDeepLink(uriString: String): OtpVerifyResult {
+        return try {
+            Log.d(TAG, "Procesando Deep Link: $uriString")
+            val uri = Uri.parse(uriString)
+
+            // Caso 1: Parámetro query token_hash (ej: ?token_hash=xxx&type=email)
+            val tokenHash = uri.getQueryParameter("token_hash")
+            if (!tokenHash.isNullOrBlank()) {
+                client.auth.verifyEmailOtp(type = OtpType.Email.EMAIL, tokenHash = tokenHash)
+                val verifiedEmail = client.auth.currentUserOrNull()?.email ?: ""
+                return OtpVerifyResult.Success(verifiedEmail)
+            }
+
+            // Caso 2: Fragmento URI #access_token=xxx&refresh_token=yyy
+            val fragment = uri.fragment
+            if (!fragment.isNullOrBlank()) {
+                val params = fragment.split("&").associate {
+                    val parts = it.split("=", limit = 2)
+                    if (parts.size == 2) parts[0] to parts[1] else "" to ""
+                }
+                val accessToken = params["access_token"]
+                val refreshToken = params["refresh_token"] ?: ""
+                if (!accessToken.isNullOrBlank()) {
+                    client.auth.importAuthToken(accessToken, refreshToken, retrieveUser = true)
+                    val verifiedEmail = client.auth.currentUserOrNull()?.email ?: ""
+                    return OtpVerifyResult.Success(verifiedEmail)
+                }
+            }
+
+            OtpVerifyResult.Error("El enlace de autenticación no contiene parámetros válidos.")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error procesando Deep Link '$uriString': ${e.message}", e)
+            OtpVerifyResult.Error("El enlace de autenticación es inválido o ha expirado.")
         }
     }
 
     override suspend fun signOut() {
         runCatching { client.auth.signOut() }
-        // Olvida la cuenta recordada por Credential Manager; si no, la próxima vez que se pida login
-        // puede auto-seleccionarse sola la misma cuenta y no dejar elegir otra.
-        runCatching { CredentialManager.create(appContext).clearCredentialState(ClearCredentialStateRequest()) }
     }
 
     companion object {
         private const val TAG = "AuthRepository"
-
-        private fun sha256(value: String): String =
-            MessageDigest.getInstance("SHA-256")
-                .digest(value.toByteArray())
-                .joinToString("") { "%02x".format(it) }
+        private const val REDIRECT_URL = "bdcontrol://login"
     }
 }

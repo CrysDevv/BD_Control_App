@@ -4,8 +4,16 @@
 
     <!-- Login -->
     <string name="login_title">Bodega — Control de ventilación</string>
-    <string name="login_google_hint">Ingresa con tu cuenta de Google para ver y controlar tus dispositivos.</string>
-    <string name="login_google_button">Continuar con Google</string>
+    <string name="login_user_hint">Ingresa tu usuario y contraseña para iniciar sesión.</string>
+    <string name="login_username_label">Nombre de usuario</string>
+    <string name="login_password_label">Contraseña</string>
+    <string name="login_submit_button">Ingresar</string>
+    <string name="login_otp_sent_hint">Contraseña válida. Se ha enviado un código de verificación a %1$s. Ingrésalo a continuación:</string>
+    <string name="login_code_label">Código OTP (6 dígitos)</string>
+    <string name="login_verify_code_button">Verificar código</string>
+    <string name="login_back_button">Volver / Cambiar usuario</string>
+    <string name="login_resend_code_button">Reenviar código</string>
+    <string name="login_test_mode_button">Saltar Login (Modo Pruebas)</string>
     <string name="login_simulator_link">¿Eres el dispositivo emisor? Abrir panel de simulación</string>
 
     <!-- Dashboard -->

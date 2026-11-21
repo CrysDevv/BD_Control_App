@@ -1,6 +1,7 @@
 # Secretos y configuración local — nunca versionar
 local.properties
 **/config.h
+firmware/esp32_supabase/esp32_supabase.ino
 
 # Build
 /build

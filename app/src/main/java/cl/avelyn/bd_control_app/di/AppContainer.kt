@@ -86,7 +86,7 @@ class AppContainer(context: Context) {
     /** Mide el consumo de batería del teléfono (una muestra por minuto, solo con la app a la vista). */
     val energyMonitor = EnergyMonitor(AndroidBatteryReader(context), visibility)
 
-    val authRepository = AuthRepository(supabaseClient, context.applicationContext)
+    val authRepository = AuthRepository(supabaseClient)
     val deviceAccessRepository = DeviceAccessRepository(supabaseClient)
 
     /** Usuario con sesión iniciada y sus permisos por dispositivo. Vacío (deniega todo) hasta completar el login. */
@@ -117,8 +117,8 @@ class AppContainer(context: Context) {
         get() = AuthorizedFanCommandSender(supabaseIotBridge, session)
 
     init {
-        // Supabase Auth guarda la sesión de Google en el teléfono por defecto; a propósito no se
-        // restaura, igual que antes: cada apertura de la app pide de nuevo el selector de cuenta
+        // Supabase Auth guarda la sesión en el teléfono por defecto; a propósito no se
+        // restaura, igual que antes: cada apertura de la app pide de nuevo el login con OTP
         // (ver SessionManager, que tampoco sobrevive al cierre de la app).
         appScope.launch { runCatching { supabaseClient.auth.signOut() } }
         appScope.launch { syncManager.run() }

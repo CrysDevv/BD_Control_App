@@ -1,27 +1,40 @@
 package cl.avelyn.bd_control_app.model.repository
 
-import android.content.Context
-
-/** Resultado de pedirle a Google una cuenta e iniciar sesión con ella en Supabase. */
-sealed interface GoogleSignInResult {
-    /** El usuario cerró el selector de cuentas sin elegir ninguna. No es un error. */
-    data object Cancelled : GoogleSignInResult
-
-    /** El teléfono no tiene ninguna cuenta de Google configurada. */
-    data object NoGoogleAccount : GoogleSignInResult
-
-    /** Se inició sesión en Supabase con esta cuenta. */
-    class Success(val email: String) : GoogleSignInResult
-
-    /** Google o Supabase rechazaron el intento; [message] ya está listo para mostrarse. */
-    class Error(val message: String) : GoogleSignInResult
+/** Resultado de validar usuario y contraseña contra la tabla users de Supabase. */
+sealed interface PasswordAuthResult {
+    data class Success(val username: String, val email: String) : PasswordAuthResult
+    data class Error(val message: String) : PasswordAuthResult
 }
 
-/** Login con la cuenta de Google del usuario. [AuthViewModel] depende de esta interfaz, no de Supabase. */
-interface Authenticator {
-    /** Abre el selector nativo de cuentas de Google y, si se elige una, valida la sesión contra Supabase. */
-    suspend fun signInWithGoogle(activityContext: Context): GoogleSignInResult
+/** Resultado del envío del código OTP o enlace de autenticación al correo del usuario. */
+sealed interface OtpSendResult {
+    data object Success : OtpSendResult
+    data class Error(val message: String) : OtpSendResult
+}
 
-    /** Cierra la sesión en Supabase y olvida la cuenta elegida (para poder entrar con otra la próxima vez). */
+/** Resultado de la verificación del código OTP o enlace de autenticación. */
+sealed interface OtpVerifyResult {
+    data class Success(val email: String) : OtpVerifyResult
+    data class Error(val message: String) : OtpVerifyResult
+}
+
+/**
+ * Interfaz de autenticación de dos pasos: primero usuario/contraseña en Supabase `users`,
+ * seguido de código OTP o enlace de inicio de sesión automático enviado por correo.
+ */
+interface Authenticator {
+    /** Valida el nombre de usuario y contraseña contra la tabla `users` de Supabase. */
+    suspend fun signInWithPassword(username: String, password: CharArray): PasswordAuthResult
+
+    /** Solicita a Supabase enviar el correo de autenticación (código OTP / Magic Link). */
+    suspend fun sendOtp(email: String): OtpSendResult
+
+    /** Verifica el código OTP de 6 dígitos ingresado manualmente por el usuario. */
+    suspend fun verifyOtp(email: String, code: String): OtpVerifyResult
+
+    /** Verifica y procesa el enlace de autenticación presionado desde el correo (Deep Link). */
+    suspend fun verifyDeepLink(uriString: String): OtpVerifyResult
+
+    /** Cierra la sesión activa. */
     suspend fun signOut()
 }

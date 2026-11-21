@@ -1,25 +1,52 @@
 package cl.avelyn.bd_control_app.ui.theme
 
+import android.app.Activity
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 
-private val BdColorScheme = lightColorScheme(
-    primary = BodegaGreen,
-    onPrimary = BodegaSurface,
-    primaryContainer = BodegaGreenDark,
-    secondary = BodegaAmber,
-    error = BodegaRed,
-    background = BodegaBackground,
-    surface = BodegaSurface,
-    onSurface = BodegaOnSurface
+private val DarkColorScheme = darkColorScheme(
+    primary = OrangePrimary,
+    onPrimary = TextWhite,
+    primaryContainer = OrangeContainer,
+    onPrimaryContainer = OrangePrimary,
+    secondary = StatusCyan,
+    onSecondary = TextWhite,
+    background = DarkBackground,
+    surface = DarkSurface,
+    onSurface = TextWhite,
+    surfaceVariant = DarkSurfaceVariant,
+    onSurfaceVariant = TextMuted,
+    outline = DarkBorder,
+    outlineVariant = DarkBorderLight,
+    error = StatusRed,
+    errorContainer = StatusRedBg,
+    onErrorContainer = StatusRed
 )
 
-/** Tema único de la app: sin modo oscuro por ahora, para mantener el alcance acotado. */
 @Composable
-fun BdControlAppTheme(content: @Composable () -> Unit) {
+fun BdControlAppTheme(
+    darkTheme: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val colorScheme = DarkColorScheme
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as Activity).window
+            window.statusBarColor = colorScheme.background.toArgb()
+            window.navigationBarColor = colorScheme.background.toArgb()
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+        }
+    }
+
     MaterialTheme(
-        colorScheme = BdColorScheme,
+        colorScheme = colorScheme,
         typography = BdTypography,
         content = content
     )

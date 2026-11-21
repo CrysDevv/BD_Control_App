@@ -21,7 +21,10 @@ private object Routes {
 }
 
 @Composable
-fun AppNavigation(navController: NavHostController = rememberNavController()) {
+fun AppNavigation(
+    navController: NavHostController = rememberNavController(),
+    deepLinkUri: String? = null
+) {
     NavHost(navController = navController, startDestination = Routes.LOGIN) {
         composable(Routes.LOGIN) {
             LoginScreen(
@@ -30,7 +33,8 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
                     }
                 },
-                onOpenSimulator = { navController.navigate(Routes.SIMULATOR) }
+                onOpenSimulator = { navController.navigate(Routes.SIMULATOR) },
+                deepLinkUri = deepLinkUri
             )
         }
         if (BuildConfig.DEBUG) {

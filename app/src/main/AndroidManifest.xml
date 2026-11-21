@@ -31,6 +31,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Deep Link para inicio de sesión directo desde el correo electrónico -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="bdcontrol"
+                    android:host="login" />
+            </intent-filter>
+
             <!-- Al enchufar el ESP32 Android ofrece abrir la app, y con "usar siempre" concede el permiso USB
                  para ese dispositivo de forma persistente. singleTop evita abrir una segunda copia (y volver al login). -->
             <intent-filter>

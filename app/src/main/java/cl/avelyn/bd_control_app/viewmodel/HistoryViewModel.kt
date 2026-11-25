@@ -33,7 +33,7 @@ class HistoryViewModel(sensorRepository: SensorRepository, session: SessionManag
     @OptIn(ExperimentalCoroutinesApi::class)
     val ui: StateFlow<HistoryUiState> = combine(sensorRepository.deviceIds(), requestedId) { allIds, requested ->
         // El historial guarda lo de todos los sensores; cada usuario solo ve los que tiene permiso de consultar.
-        val ids = allIds.filter { session.policy.canView(it) || session.policy.canView("esp32") || session.policy.canView("bodega_status") }
+        val ids = allIds.filter { session.policy.canView(it) || session.policy.canView("esp32") || session.policy.canView("bodega_status") || session.policy.canView("sensor") }
         // Si el sensor pedido ya no tiene historial (o no se ha elegido uno), se usa el primero.
         ids to (requested?.takeIf { it in ids } ?: ids.firstOrNull())
     }

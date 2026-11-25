@@ -52,23 +52,31 @@ class AuthViewModel(
     /** Paso 1: Valida usuario y contraseña en Supabase `users` y envía el correo con el enlace / código OTP. */
     fun loginWithPassword(usernameInput: String = _ui.value.username, passwordInput: String) {
         val trimmedUsername = usernameInput.trim()
+        Log.d(TAG, "[UI-EVENT] Intento de loginWithPassword con usuario = '$trimmedUsername'")
+
         if (trimmedUsername.isBlank() || passwordInput.isBlank()) {
-            _ui.update { it.copy(error = "Por favor ingresa usuario y contraseña.") }
+            val msg = "Por favor ingresa usuario y contraseña."
+            Log.w(TAG, "[UI-EVENT] Validación fallida en UI: $msg")
+            _ui.update { it.copy(error = msg) }
             return
         }
 
         viewModelScope.launch {
             _ui.update { it.copy(isLoading = true, error = null, username = trimmedUsername) }
+            Log.d(TAG, "[UI-VM] Llamando a authenticator.signInWithPassword('$trimmedUsername')...")
             val authResult = authenticator.signInWithPassword(trimmedUsername, passwordInput.toCharArray())
             when (authResult) {
                 is PasswordAuthResult.Error -> {
+                    Log.w(TAG, "[UI-VM] Error devuelto por signInWithPassword: ${authResult.message}")
                     _ui.update { it.copy(isLoading = false, error = authResult.message) }
                 }
                 is PasswordAuthResult.Success -> {
                     val userEmail = authResult.email
+                    Log.d(TAG, "[UI-VM] signInWithPassword EXITOSO. Usuario: '${authResult.username}', Email: '$userEmail'. Enviando OTP...")
                     val otpResult = authenticator.sendOtp(userEmail)
                     when (otpResult) {
                         is OtpSendResult.Error -> {
+                            Log.w(TAG, "[UI-VM] Error al enviar OTP a '$userEmail': ${otpResult.message}")
                             _ui.update {
                                 it.copy(
                                     isLoading = false,
@@ -77,6 +85,7 @@ class AuthViewModel(
                             }
                         }
                         is OtpSendResult.Success -> {
+                            Log.d(TAG, "[UI-VM] OTP enviado con éxito a '$userEmail'. Cambiando UI a AuthStep.OTP_CODE.")
                             _ui.update {
                                 it.copy(
                                     isLoading = false,
@@ -96,14 +105,20 @@ class AuthViewModel(
     /** Reenvía el correo de autenticación al correo del usuario activo. */
     fun resendOtp() {
         val email = _ui.value.email
-        if (email.isBlank()) return
+        Log.d(TAG, "[UI-EVENT] Reenviando código OTP a '$email'...")
+        if (email.isBlank()) {
+            Log.w(TAG, "[UI-EVENT] No hay email configurado para reenviar OTP.")
+            return
+        }
         viewModelScope.launch {
             _ui.update { it.copy(isLoading = true, error = null) }
             when (val result = authenticator.sendOtp(email)) {
                 is OtpSendResult.Error -> {
+                    Log.w(TAG, "[UI-VM] Error reenviando OTP: ${result.message}")
                     _ui.update { it.copy(isLoading = false, error = result.message) }
                 }
                 is OtpSendResult.Success -> {
+                    Log.d(TAG, "[UI-VM] OTP reenviado con éxito a '$email'")
                     _ui.update { it.copy(isLoading = false, error = null) }
                 }
             }
@@ -113,8 +128,12 @@ class AuthViewModel(
     /** Paso 2 (manual): Verifica el código OTP de 6 dígitos ingresado por el usuario. */
     fun verifyOtp(code: String) {
         val trimmedCode = code.trim()
+        Log.d(TAG, "[UI-EVENT] Intento de verifyOtp con código de ${trimmedCode.length} dígitos")
+
         if (trimmedCode.length < 6) {
-            _ui.update { it.copy(error = "El código OTP debe tener 6 dígitos.") }
+            val msg = "El código OTP debe tener 6 dígitos."
+            Log.w(TAG, "[UI-EVENT] Código OTP demasiado corto: '$trimmedCode'")
+            _ui.update { it.copy(error = msg) }
             return
         }
 
@@ -122,15 +141,18 @@ class AuthViewModel(
         val username = _ui.value.username
         viewModelScope.launch {
             _ui.update { it.copy(isLoading = true, error = null) }
+            Log.d(TAG, "[UI-VM] Verificando código OTP con authenticator.verifyOtp('$email', '$trimmedCode')...")
             when (val result = authenticator.verifyOtp(email, trimmedCode)) {
                 is OtpVerifyResult.Error -> {
+                    Log.w(TAG, "[UI-VM] Error en verifyOtp: ${result.message}")
                     _ui.update { it.copy(isLoading = false, error = result.message) }
                 }
                 is OtpVerifyResult.Success -> {
+                    Log.d(TAG, "[UI-VM] OTP verificado EXITOSAMENTE para '${result.email}'. Cargando permisos de usuario...")
                     val policy = try {
                         deviceAccess.policyFor(result.email)
                     } catch (e: Exception) {
-                        Log.w(TAG, "No se pudieron cargar los permisos: ${e.message}")
+                        Log.w(TAG, "[UI-VM] Excepción al cargar permisos para '${result.email}': ${e.message}", e)
                         authenticator.signOut()
                         _ui.update {
                             it.copy(
@@ -140,7 +162,9 @@ class AuthViewModel(
                         }
                         return@launch
                     }
-                    session.open(username.ifBlank { result.email }, policy)
+                    val userIdentity = username.ifBlank { result.email }
+                    Log.d(TAG, "[UI-VM] Permisos cargados. Abriendo sesión para '$userIdentity'...")
+                    session.open(userIdentity, policy)
                     _ui.update { it.copy(isLoading = false, isLoggedIn = true) }
                 }
             }
@@ -150,17 +174,20 @@ class AuthViewModel(
     /** Paso 2 (automático): Procesa el enlace de autenticación presionado desde el correo (Deep Link). */
     fun handleDeepLink(uriString: String) {
         val username = _ui.value.username
+        Log.d(TAG, "[UI-EVENT] Recibido Deep Link para procesar: '$uriString'")
         viewModelScope.launch {
             _ui.update { it.copy(isLoading = true, error = null) }
             when (val result = authenticator.verifyDeepLink(uriString)) {
                 is OtpVerifyResult.Error -> {
+                    Log.w(TAG, "[UI-VM] Error verificando Deep Link: ${result.message}")
                     _ui.update { it.copy(isLoading = false, error = result.message) }
                 }
                 is OtpVerifyResult.Success -> {
+                    Log.d(TAG, "[UI-VM] Deep Link verificado EXITOSAMENTE para '${result.email}'. Cargando permisos...")
                     val policy = try {
                         deviceAccess.policyFor(result.email)
                     } catch (e: Exception) {
-                        Log.w(TAG, "No se pudieron cargar los permisos por Deep Link: ${e.message}")
+                        Log.w(TAG, "[UI-VM] Excepción al cargar permisos por Deep Link: ${e.message}", e)
                         authenticator.signOut()
                         _ui.update {
                             it.copy(
@@ -170,7 +197,9 @@ class AuthViewModel(
                         }
                         return@launch
                     }
-                    session.open(username.ifBlank { result.email }, policy)
+                    val userIdentity = username.ifBlank { result.email }
+                    Log.d(TAG, "[UI-VM] Abriendo sesión por Deep Link para '$userIdentity'...")
+                    session.open(userIdentity, policy)
                     _ui.update { it.copy(isLoading = false, isLoggedIn = true) }
                 }
             }
@@ -179,11 +208,13 @@ class AuthViewModel(
 
     /** Permite volver al paso de ingresar usuario y contraseña. */
     fun resetToPasswordStep() {
+        Log.d(TAG, "[UI-EVENT] Volviendo al paso de usuario y contraseña (USERNAME_PASSWORD)")
         _ui.update { it.copy(step = AuthStep.USERNAME_PASSWORD, error = null) }
     }
 
     /** Permite saltar la autenticación para facilitar pruebas rápidas (Modo Pruebas). */
     fun skipLogin() {
+        Log.d(TAG, "[UI-EVENT] Activando Modo Pruebas (skipLogin). Usuario: 'tester@local'")
         val testPolicy = AccessPolicy(
             listOf(DevicePermission(AccessPolicy.WILDCARD, canView = true, canControl = true))
         )
@@ -193,6 +224,7 @@ class AuthViewModel(
 
     /** Cierra sesión: borra los permisos, la sesión y limpia cualquier error pendiente. */
     fun logout() {
+        Log.d(TAG, "[UI-EVENT] Cerrando sesión de usuario...")
         session.close()
         viewModelScope.launch { authenticator.signOut() }
         _ui.value = AuthUiState()

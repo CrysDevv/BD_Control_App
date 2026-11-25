@@ -63,6 +63,7 @@ class DashboardViewModel(
 
     val serialState: StateFlow<SerialLinkState> = serialPort.state
     val serialStats: StateFlow<LinkStats> = serialPort.stats
+    val powerSaving: StateFlow<Boolean> = settings.powerSaving
 
     private val _bodegaState = MutableStateFlow(BodegaStatusUiState())
     val bodegaState: StateFlow<BodegaStatusUiState> = _bodegaState.asStateFlow()
@@ -246,6 +247,10 @@ class DashboardViewModel(
                     _bodegaState.update { it.copy(isBusy = false, userError = e.message ?: "No se pudieron guardar los umbrales") }
                 }
         }
+    }
+
+    fun setPowerSaving(enabled: Boolean) {
+        settings.setPowerSaving(enabled)
     }
 
     fun clearUserError() {

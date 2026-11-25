@@ -16,6 +16,7 @@ import cl.avelyn.bd_control_app.model.network.AuthorizedSensorDataSource
 import cl.avelyn.bd_control_app.model.network.FanCommandSender
 import cl.avelyn.bd_control_app.model.network.SensorDataSource
 import cl.avelyn.bd_control_app.model.network.SupabaseIotBridge
+import cl.avelyn.bd_control_app.model.network.UdpMsg
 import cl.avelyn.bd_control_app.model.repository.AuthRepository
 import cl.avelyn.bd_control_app.model.repository.DeviceAccessRepository
 import cl.avelyn.bd_control_app.model.repository.SensorRepository
@@ -123,5 +124,17 @@ class AppContainer(context: Context) {
         appScope.launch { runCatching { supabaseClient.auth.signOut() } }
         appScope.launch { syncManager.run() }
         appScope.launch { energyMonitor.run() }
+        appScope.launch {
+            sensorDataSource.listen().collect { msg ->
+                if (msg is UdpMsg.Sensor) {
+                    runCatching {
+                        sensorRepository.record(msg)
+                        if (msg.sample != null) {
+                            serialPort.markStored(msg.deviceId, msg.sample)
+                        }
+                    }
+                }
+            }
+        }
     }
 }

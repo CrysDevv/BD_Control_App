@@ -20,17 +20,20 @@ private data class PermissionRow(
 class DeviceAccessRepository(private val client: SupabaseClient) : DeviceAccessSource {
 
     override suspend fun policyFor(email: String): AccessPolicy {
+        Log.d(TAG, "Consultando tabla 'device_permissions' en Supabase para email = '$email'...")
         var rows = try {
             client.from("device_permissions")
                 .select(columns = Columns.list("device_id", "can_view", "can_control")) {
                     filter { eq("email", email) }
                 }
                 .decodeList<PermissionRow>()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "Error consultando permisos por email '$email': ${e.message}")
             emptyList()
         }
 
         if (rows.isEmpty()) {
+            Log.d(TAG, "Sin resultados por email '$email'. Intentando consulta por username = '$email'...")
             rows = try {
                 client.from("device_permissions")
                     .select(columns = Columns.list("device_id", "can_view", "can_control")) {
@@ -38,11 +41,22 @@ class DeviceAccessRepository(private val client: SupabaseClient) : DeviceAccessS
                     }
                     .decodeList<PermissionRow>()
             } catch (e: Exception) {
-                Log.w("DeviceAccessRepo", "No se encontraron permisos para '$email': ${e.message}")
+                Log.w(TAG, "No se encontraron permisos por username '$email': ${e.message}")
                 emptyList()
             }
         }
 
+        Log.d(
+            TAG,
+            "Permisos obtenidos para '$email': ${rows.size} regla(s) -> ${
+                if (rows.isEmpty()) "Denegar todo por defecto" else rows.joinToString { "${it.device_id}[ver=${it.can_view}, control=${it.can_control}]" }
+            }"
+        )
+
         return AccessPolicy(rows.map { DevicePermission(it.device_id, it.can_view, it.can_control) })
+    }
+
+    companion object {
+        private const val TAG = "DeviceAccessRepo"
     }
 }

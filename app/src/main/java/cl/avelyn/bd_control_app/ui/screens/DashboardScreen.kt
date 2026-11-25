@@ -45,6 +45,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -66,6 +68,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import cl.avelyn.bd_control_app.BuildConfig
 import cl.avelyn.bd_control_app.R
 import cl.avelyn.bd_control_app.di.Factories
+import cl.avelyn.bd_control_app.model.energy.EnergyReport
 import cl.avelyn.bd_control_app.ui.components.CircularGauge
 import cl.avelyn.bd_control_app.ui.components.StatusBadge
 import cl.avelyn.bd_control_app.ui.theme.DarkBackground
@@ -138,7 +141,8 @@ fun DashboardScreen(
                 OverviewScreenContent(
                     state = state,
                     onSelectDevice = { currentMode = DashboardViewMode.DEVICE_DETAIL },
-                    onLogout = { viewModel.logout(); onLogout() }
+                    onLogout = { viewModel.logout(); onLogout() },
+                    viewModel = viewModel
                 )
             }
             DashboardViewMode.DEVICE_DETAIL -> {
@@ -160,9 +164,18 @@ fun DashboardScreen(
 private fun OverviewScreenContent(
     state: BodegaStatusUiState,
     onSelectDevice: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    viewModel: DashboardViewModel
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    val scrollState = rememberScrollState()
+    val powerSaving by viewModel.powerSaving.collectAsStateWithLifecycle()
+    val energy by viewModel.energy.collectAsStateWithLifecycle()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+    ) {
         // Header "Mis Bodegas"
         Row(
             modifier = Modifier
@@ -429,6 +442,15 @@ private fun OverviewScreenContent(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Modo Ahorro de Energía
+        EnergyCard(
+            energy = energy,
+            powerSaving = powerSaving,
+            onTogglePowerSaving = viewModel::setPowerSaving
+        )
     }
 }
 
@@ -443,6 +465,8 @@ private fun DeviceDetailScreenContent(
     viewModel: DashboardViewModel
 ) {
     val scrollState = rememberScrollState()
+    val powerSaving by viewModel.powerSaving.collectAsStateWithLifecycle()
+    val energy by viewModel.energy.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -855,6 +879,13 @@ private fun DeviceDetailScreenContent(
                 }
             }
 
+            // Modo Ahorro de Energía
+            EnergyCard(
+                energy = energy,
+                powerSaving = powerSaving,
+                onTogglePowerSaving = viewModel::setPowerSaving
+            )
+
             // Banner Dispositivo Fuera de Línea
             if (!state.online) {
                 Box(
@@ -904,6 +935,123 @@ private fun DeviceDetailScreenContent(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Ver historial de registros", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
+        }
+    }
+}
+
+/**
+ * Tarjeta de Ahorro de Energía y Batería del Teléfono
+ */
+@Composable
+private fun EnergyCard(
+    energy: EnergyReport,
+    powerSaving: Boolean,
+    onTogglePowerSaving: (Boolean) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(DarkSurface)
+            .border(1.dp, DarkBorder, RoundedCornerShape(16.dp))
+            .padding(14.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(DarkSurfaceVariant)
+                            .border(1.dp, DarkBorder, RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PowerSettingsNew,
+                            contentDescription = "Ahorro de energía",
+                            tint = OrangePrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column {
+                        Text(
+                            text = "AHORRO DE BATERÍA",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted,
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = stringResource(R.string.energy_title),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                    }
+                }
+
+                Switch(
+                    checked = powerSaving,
+                    onCheckedChange = onTogglePowerSaving,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = TextWhite,
+                        checkedTrackColor = OrangePrimary,
+                        uncheckedThumbColor = TextMuted,
+                        uncheckedTrackColor = DarkSurfaceVariant,
+                        uncheckedBorderColor = DarkBorder
+                    )
+                )
+            }
+
+            Text(
+                text = stringResource(if (powerSaving) R.string.energy_saving_on else R.string.energy_saving_off),
+                fontSize = 12.sp,
+                color = TextMuted
+            )
+
+            energy.levelPct?.let { level ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(DarkSurfaceVariant)
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = if (energy.charging) stringResource(R.string.energy_charging, level)
+                        else stringResource(R.string.energy_level, level),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextWhite
+                    )
+
+                    energy.dischargePctPerHour?.let { rate ->
+                        Text(
+                            text = stringResource(R.string.energy_rate, rate, energy.hoursRemaining ?: 0f),
+                            fontSize = 11.sp,
+                            color = TextMuted
+                        )
+                    }
+
+                    energy.avgCurrentMa?.let { current ->
+                        Text(
+                            text = stringResource(R.string.energy_current, current),
+                            fontSize = 11.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
             }
         }
     }
